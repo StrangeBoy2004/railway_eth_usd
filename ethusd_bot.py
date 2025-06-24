@@ -8,10 +8,10 @@ import pandas as pd
 import numpy as np
 from ta.trend import EMAIndicator, ADXIndicator
 import time
-
+import os
 # === USER CONFIGURATION ===
-API_KEY = 'RzC8BXl98EeFh3i1pOwRAgjqQpLLII'
-API_SECRET = 'yP1encFFWbrPkm5u58ak3qhHD3Eupv9fP5Rf9AmPmi60RHTreYuBdNv1a2bo'
+API_KEY = os.getenv("DELTA_API_KEY") or 'RzC8BXl98EeFh3i1pOwRAgjqQpLLII'
+API_SECRET = os.getenv("DELTA_API_SECRET") or 'yP1encFFWbrPkm5u58ak3qhHD3Eupv9fP5Rf9AmPmi60RHTreYuBdNv1a2bo'
 BASE_URL = 'https://cdn-ind.testnet.deltaex.org'
 USD_ASSET_ID = 3  # Confirmed from wallet response
 
