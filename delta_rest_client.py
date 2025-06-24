@@ -9,7 +9,7 @@ import json
 from enum import Enum
 
 from decimal import Decimal
-from .version import __version__ as version
+__version__ = "1.0.0"
 
 
 class OrderType(Enum):
