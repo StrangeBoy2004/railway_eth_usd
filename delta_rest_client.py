@@ -1,4 +1,3 @@
-version = "1.0.0"
 import requests
 import urllib.parse
 import time
@@ -10,7 +9,7 @@ import json
 from enum import Enum
 
 from decimal import Decimal
-
+from .version import __version__ as version
 
 
 class OrderType(Enum):
