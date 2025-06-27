@@ -1,7 +1,8 @@
 # === ETHUSD Futures Trading Bot (Delta Exchange Demo)
 # === Full Version: Supports Buy/Sell, Trailing SL, and Break-even Logic ===
 
-from delta_rest_client import DeltaRestClient
+from delta_rest_client import DeltaRestClient, OrderType
+
 from datetime import datetime
 import ccxt
 import pandas as pd
