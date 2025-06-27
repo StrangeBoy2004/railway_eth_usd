@@ -227,7 +227,7 @@ if __name__ == "__main__":
                     break
                 except Exception as e:
                     print(f"❌ Error: {e}")
-                    time.sleep(20)
+                    time.sleep(30)
         else:
             print("⚠️ USD balance fetch failed.")
     else:
