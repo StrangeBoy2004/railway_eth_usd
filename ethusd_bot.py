@@ -79,14 +79,21 @@ def apply_strategy(df):
 
 # === DETERMINE TRADE DIRECTION ===
 def get_trade_signal(df):
-    last = df.iloc[-1]
-    print("\n📊 Strategy Check (Latest Candle):")
+    # Use the last two candles
     prev = df.iloc[-2]
     last = df.iloc[-1]
-    if prev["ema9"] < prev["ema15"] and last["ema9"] > last["ema15"]:
+
+    print("\n📊 Strategy Check (Latest Candle):")
+    print(f"Prev EMA9: {prev['ema9']:.2f}, EMA15: {prev['ema15']:.2f}")
+    print(f"Curr EMA9: {last['ema9']:.2f}, EMA15: {last['ema15']:.2f}")
+
+    if prev["ema9"] < prev["ema15"] and last["ema9"] >= last["ema15"]:
+        print("✅ Buy Signal Confirmed")
         return "buy"
-    elif prev["ema9"] > prev["ema15"] and last["ema9"] < last["ema15"]:
+    elif prev["ema9"] > prev["ema15"] and last["ema9"] <= last["ema15"]:
+        print("✅ Sell Signal Confirmed")
         return "sell"
+    print("❌ No crossover signal.")
     return None
 
 # === CANCEL UNFILLED ORDERS ===
