@@ -1,5 +1,5 @@
 # === ETHUSD Futures Trading Bot (Delta Exchange Demo)
-# === Full Version: Supports Buy/Sell, Stop Loss, Take Profit Logic ===
+# === Full Version: Supports Buy/Sell, Trailing SL, and Break-even Logic with Hybrid OCO ===
 
 from delta_rest_client import DeltaRestClient, OrderType
 from datetime import datetime
@@ -14,7 +14,7 @@ import os
 API_KEY = os.getenv("DELTA_API_KEY") or 'RzC8BXl98EeFh3i1pOwRAgjqQpLLII'
 API_SECRET = os.getenv("DELTA_API_SECRET") or 'yP1encFFWbrPkm5u58ak3qhHD3Eupv9fP5Rf9AmPmi60RHTreYuBdNv1a2bo'
 BASE_URL = 'https://cdn-ind.testnet.deltaex.org'
-USD_ASSET_ID = 3  # Confirmed from wallet response
+USD_ASSET_ID = 3
 
 # === AUTHENTICATION ===
 def authenticate():
@@ -108,7 +108,7 @@ def has_open_position(client, product_id):
         print(f"❌ Error checking position: {e}")
         return False
 
-# === PLACE ORDER ===
+# === PLACE ORDER WITH HYBRID OCO AND TRAILING SL ===
 def place_order(client, capital, entry_price, side, product_id):
     try:
         RISK_PERCENT = 0.10
@@ -125,12 +125,12 @@ def place_order(client, capital, entry_price, side, product_id):
 
         sl_price = round(entry_price - sl_usd, 2) if side == "buy" else round(entry_price + sl_usd, 2)
         tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
+        halfway = round(entry_price + tp_usd / 2, 2) if side == "buy" else round(entry_price - tp_usd / 2, 2)
 
         print(f"\n🛒 Placing LIMIT {side.upper()} order: Entry {entry_price}, SL {sl_price}, TP {tp_price}, Lot {lot_size}")
         print(f"🧪 DEBUG: Side: {side}, Size: {lot_size} (type: {type(lot_size)}), Entry: {entry_price}")
 
-        # === Entry Order ===
-        client.place_order(
+        order = client.place_order(
             product_id=product_id,
             size=lot_size,
             side=side,
@@ -138,30 +138,68 @@ def place_order(client, capital, entry_price, side, product_id):
             order_type=OrderType.LIMIT
         )
 
-        # === Stop Loss Order ===
+        time.sleep(2)
+
+        # Place TP & SL after position is active
+        sl_side = "sell" if side == "buy" else "buy"
+        tp_side = sl_side
+
         client.place_stop_order(
             product_id=product_id,
             size=lot_size,
-            side="sell" if side == "buy" else "buy",
+            side=sl_side,
             stop_price=sl_price,
             limit_price=sl_price,
             order_type=OrderType.LIMIT
         )
+        print(f"🛑 SL placed at {sl_price}")
 
-        # === Take Profit Order ===
         client.place_order(
             product_id=product_id,
             size=lot_size,
-            side="sell" if side == "buy" else "buy",
+            side=tp_side,
             limit_price=tp_price,
             order_type=OrderType.LIMIT
         )
+        print(f"🎯 TP placed at {tp_price}")
 
         with open("trades_log.txt", "a") as f:
             f.write(f"{datetime.now()} | ORDER PLACED | {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size}\n")
 
+        monitor_trailing_stop(client, product_id, entry_price, side, halfway, sl_usd)
+
     except Exception as e:
         print(f"❌ Failed to place order: {e}")
+
+# === TRAILING SL AFTER HALFWAY ===
+def monitor_trailing_stop(client, product_id, entry_price, side, halfway, trail_usd):
+    moved = False
+    while True:
+        pos = client.get_position(product_id=product_id)
+        if not pos or float(pos["size"]) == 0:
+            print("🚪 Position closed.")
+            break
+
+        mark_price = float(pos["mark_price"])
+        size = float(pos["size"])
+
+        if not moved:
+            if (side == "buy" and mark_price >= halfway) or (side == "sell" and mark_price <= halfway):
+                moved = True
+                print(f"📈 Halfway TP reached. Starting trailing SL...")
+        else:
+            new_sl = round(mark_price - trail_usd, 2) if side == "buy" else round(mark_price + trail_usd, 2)
+            client.place_stop_order(
+                product_id=product_id,
+                size=size,
+                side="sell" if side == "buy" else "buy",
+                stop_price=new_sl,
+                limit_price=new_sl,
+                order_type=OrderType.LIMIT
+            )
+            print(f"🔄 Trailing SL updated to {new_sl}")
+
+        time.sleep(15)
 
 # === WAIT FOR NEXT 1M CANDLE ===
 def wait_until_next_1min():
