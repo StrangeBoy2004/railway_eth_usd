@@ -115,7 +115,7 @@ def place_order(client, capital, entry_price, side, product_id):
         RISK_PERCENT = 0.10
         SL_PERCENT = 0.01
         TP_MULTIPLIER = 3
-        LEVERAGE = 10
+        LEVERAGE = 1
         MIN_LOT_SIZE = 1
 
         risk_amount = capital * RISK_PERCENT
