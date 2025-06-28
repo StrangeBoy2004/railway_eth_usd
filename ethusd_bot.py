@@ -1,15 +1,15 @@
 # === ETHUSD Futures Trading Bot (Delta Exchange Demo)
-# === Full Version: Supports Buy/Sell, Trailing SL, and Break-even Logic ===
+# === Full Version: Supports Buy/Sell, Stop Loss, Take Profit Logic ===
 
 from delta_rest_client import DeltaRestClient, OrderType
-
 from datetime import datetime
 import ccxt
 import pandas as pd
 import numpy as np
-from ta.trend import EMAIndicator, ADXIndicator
+from ta.trend import EMAIndicator
 import time
 import os
+
 # === USER CONFIGURATION ===
 API_KEY = os.getenv("DELTA_API_KEY") or 'RzC8BXl98EeFh3i1pOwRAgjqQpLLII'
 API_SECRET = os.getenv("DELTA_API_SECRET") or 'yP1encFFWbrPkm5u58ak3qhHD3Eupv9fP5Rf9AmPmi60RHTreYuBdNv1a2bo'
@@ -70,19 +70,18 @@ def fetch_eth_candles(symbol="ETH/USDT", timeframe="1m", limit=100):
 # === APPLY STRATEGY INDICATORS ===
 def apply_strategy(df):
     try:
-         df["ema9"] = df["close"].ewm(span=9).mean()
-         df["ema15"] = df["close"].ewm(span=15).mean()
-         return df
+        df["ema9"] = df["close"].ewm(span=9).mean()
+        df["ema15"] = df["close"].ewm(span=15).mean()
+        return df
     except Exception as e:
         print(f"❌ Error while applying indicators: {e}")
         return None
 
 # === DETERMINE TRADE DIRECTION ===
 def get_trade_signal(df):
-    last = df.iloc[-1]
-    print("\n📊 Strategy Check (Latest Candle):")
     prev = df.iloc[-2]
     last = df.iloc[-1]
+    print("\n📊 Strategy Check (Latest Candle):")
     if prev["ema9"] < prev["ema15"] and last["ema9"] > last["ema15"]:
         return "buy"
     elif prev["ema9"] > prev["ema15"] and last["ema9"] < last["ema15"]:
@@ -130,6 +129,7 @@ def place_order(client, capital, entry_price, side, product_id):
         print(f"\n🛒 Placing LIMIT {side.upper()} order: Entry {entry_price}, SL {sl_price}, TP {tp_price}, Lot {lot_size}")
         print(f"🧪 DEBUG: Side: {side}, Size: {lot_size} (type: {type(lot_size)}), Entry: {entry_price}")
 
+        # === Entry Order ===
         client.place_order(
             product_id=product_id,
             size=lot_size,
@@ -138,56 +138,30 @@ def place_order(client, capital, entry_price, side, product_id):
             order_type=OrderType.LIMIT
         )
 
+        # === Stop Loss Order ===
+        client.place_stop_order(
+            product_id=product_id,
+            size=lot_size,
+            side="sell" if side == "buy" else "buy",
+            stop_price=sl_price,
+            limit_price=sl_price,
+            order_type=OrderType.LIMIT
+        )
+
+        # === Take Profit Order ===
+        client.place_order(
+            product_id=product_id,
+            size=lot_size,
+            side="sell" if side == "buy" else "buy",
+            limit_price=tp_price,
+            order_type=OrderType.LIMIT
+        )
+
         with open("trades_log.txt", "a") as f:
             f.write(f"{datetime.now()} | ORDER PLACED | {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size}\n")
 
-        monitor_position_with_trailing_sl(client, product_id, entry_price, side, tp_usd)
-
     except Exception as e:
         print(f"❌ Failed to place order: {e}")
-
-# === TRAILING STOP/BREAK-EVEN MONITOR ===
-def monitor_position_with_trailing_sl(client, product_id, entry_price, side, tp_usd):
-    try:
-        halfway = entry_price + tp_usd / 2 if side == "buy" else entry_price - tp_usd / 2
-        trail_distance = tp_usd / 2
-        moved_to_be = False
-
-        while True:
-            pos = client.get_position(product_id=product_id)
-            if not pos or float(pos["size"]) == 0:
-                print("🚪 Position closed.")
-                break
-
-            current_price = float(pos.get("mark_price", 0))
-            size = float(pos["size"])
-
-            if not moved_to_be:
-                if (side == "buy" and current_price >= halfway) or (side == "sell" and current_price <= halfway):
-                    be_sl = entry_price
-                    client.place_stop_order(
-                        product_id=product_id,
-                        size=size,
-                        side="sell" if side == "buy" else "buy",
-                        stop_price=be_sl,
-                        limit_price=be_sl,
-                        order_type=OrderType.LIMIT
-                    )
-                    print(f"🔄 SL moved to BE at {be_sl}")
-                    moved_to_be = True
-            else:
-                new_sl = round(current_price - trail_distance, 2) if side == "buy" else round(current_price + trail_distance, 2)
-                client.place_stop_order(
-                    product_id=product_id,
-                    size=size,
-                    side="sell" if side == "buy" else "buy",
-                    stop_price=new_sl,
-                    limit_price=new_sl,
-                    order_type=OrderType.LIMIT
-                )
-            time.sleep(15)
-    except Exception as e:
-        print(f"❌ Error in SL monitor: {e}")
 
 # === WAIT FOR NEXT 1M CANDLE ===
 def wait_until_next_1min():
