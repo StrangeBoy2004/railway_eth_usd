@@ -1,20 +1,20 @@
 # === ETHUSD Futures Trading Bot (Delta Exchange Demo)
-# === Full Version: Supports Buy/Sell, Trailing SL, and Break-even Logic with Hybrid OCO ===
+# === Full Version: Supports Buy/Sell, Trailing SL, and Break-even Logic ===
 
 from delta_rest_client import DeltaRestClient, OrderType
+
 from datetime import datetime
 import ccxt
 import pandas as pd
 import numpy as np
-from ta.trend import EMAIndicator
+from ta.trend import EMAIndicator, ADXIndicator
 import time
 import os
-
 # === USER CONFIGURATION ===
 API_KEY = os.getenv("DELTA_API_KEY") or 'RzC8BXl98EeFh3i1pOwRAgjqQpLLII'
 API_SECRET = os.getenv("DELTA_API_SECRET") or 'yP1encFFWbrPkm5u58ak3qhHD3Eupv9fP5Rf9AmPmi60RHTreYuBdNv1a2bo'
 BASE_URL = 'https://cdn-ind.testnet.deltaex.org'
-USD_ASSET_ID = 3
+USD_ASSET_ID = 3  # Confirmed from wallet response
 
 # === AUTHENTICATION ===
 def authenticate():
@@ -70,18 +70,19 @@ def fetch_eth_candles(symbol="ETH/USDT", timeframe="1m", limit=100):
 # === APPLY STRATEGY INDICATORS ===
 def apply_strategy(df):
     try:
-        df["ema9"] = df["close"].ewm(span=9).mean()
-        df["ema15"] = df["close"].ewm(span=15).mean()
-        return df
+         df["ema9"] = df["close"].ewm(span=9).mean()
+         df["ema15"] = df["close"].ewm(span=15).mean()
+         return df
     except Exception as e:
         print(f"❌ Error while applying indicators: {e}")
         return None
 
 # === DETERMINE TRADE DIRECTION ===
 def get_trade_signal(df):
-    prev = df.iloc[-2]
     last = df.iloc[-1]
     print("\n📊 Strategy Check (Latest Candle):")
+    prev = df.iloc[-2]
+    last = df.iloc[-1]
     if prev["ema9"] < prev["ema15"] and last["ema9"] > last["ema15"]:
         return "buy"
     elif prev["ema9"] > prev["ema15"] and last["ema9"] < last["ema15"]:
@@ -108,7 +109,7 @@ def has_open_position(client, product_id):
         print(f"❌ Error checking position: {e}")
         return False
 
-# === PLACE ORDER WITH HYBRID OCO AND TRAILING SL ===
+# === PLACE ORDER ===
 def place_order(client, capital, entry_price, side, product_id):
     try:
         RISK_PERCENT = 0.10
@@ -125,12 +126,11 @@ def place_order(client, capital, entry_price, side, product_id):
 
         sl_price = round(entry_price - sl_usd, 2) if side == "buy" else round(entry_price + sl_usd, 2)
         tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
-        halfway = round(entry_price + tp_usd / 2, 2) if side == "buy" else round(entry_price - tp_usd / 2, 2)
 
         print(f"\n🛒 Placing LIMIT {side.upper()} order: Entry {entry_price}, SL {sl_price}, TP {tp_price}, Lot {lot_size}")
         print(f"🧪 DEBUG: Side: {side}, Size: {lot_size} (type: {type(lot_size)}), Entry: {entry_price}")
 
-        order = client.place_order(
+        client.place_order(
             product_id=product_id,
             size=lot_size,
             side=side,
@@ -138,68 +138,57 @@ def place_order(client, capital, entry_price, side, product_id):
             order_type=OrderType.LIMIT
         )
 
-        time.sleep(2)
-
-        # Place TP & SL after position is active
-        sl_side = "sell" if side == "buy" else "buy"
-        tp_side = sl_side
-
-        client.place_stop_order(
-            product_id=product_id,
-            size=lot_size,
-            side=sl_side,
-            stop_price=sl_price,
-            limit_price=sl_price,
-            order_type=OrderType.LIMIT
-        )
-        print(f"🛑 SL placed at {sl_price}")
-
-        client.place_order(
-            product_id=product_id,
-            size=lot_size,
-            side=tp_side,
-            limit_price=tp_price,
-            order_type=OrderType.LIMIT
-        )
-        print(f"🎯 TP placed at {tp_price}")
-
         with open("trades_log.txt", "a") as f:
             f.write(f"{datetime.now()} | ORDER PLACED | {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size}\n")
 
-        monitor_trailing_stop(client, product_id, entry_price, side, halfway, sl_usd)
+        monitor_position_with_trailing_sl(client, product_id, entry_price, side, tp_usd)
 
     except Exception as e:
         print(f"❌ Failed to place order: {e}")
 
-# === TRAILING SL AFTER HALFWAY ===
-def monitor_trailing_stop(client, product_id, entry_price, side, halfway, trail_usd):
-    moved = False
-    while True:
-        pos = client.get_position(product_id=product_id)
-        if not pos or float(pos["size"]) == 0:
-            print("🚪 Position closed.")
-            break
+# === TRAILING STOP/BREAK-EVEN MONITOR ===
+def monitor_position_with_trailing_sl(client, product_id, entry_price, side, tp_usd):
+    try:
+        halfway = entry_price + tp_usd / 2 if side == "buy" else entry_price - tp_usd / 2
+        trail_distance = tp_usd / 2
+        moved_to_be = False
 
-        mark_price = float(pos["mark_price"])
-        size = float(pos["size"])
+        while True:
+            pos = client.get_position(product_id=product_id)
+            if not pos or float(pos["size"]) == 0:
+                print("🚪 Position closed.")
+                break
 
-        if not moved:
-            if (side == "buy" and mark_price >= halfway) or (side == "sell" and mark_price <= halfway):
-                moved = True
-                print(f"📈 Halfway TP reached. Starting trailing SL...")
-        else:
-            new_sl = round(mark_price - trail_usd, 2) if side == "buy" else round(mark_price + trail_usd, 2)
-            client.place_stop_order(
-                product_id=product_id,
-                size=size,
-                side="sell" if side == "buy" else "buy",
-                stop_price=new_sl,
-                limit_price=new_sl,
-                order_type=OrderType.LIMIT
-            )
-            print(f"🔄 Trailing SL updated to {new_sl}")
+            ticker = client.get_ticker("ETHUSD")  # Ensure this matches your product identifier
+            current_price = float(ticker["mark_price"])
+            size = float(pos["size"])
 
-        time.sleep(15)
+            if not moved_to_be:
+                if (side == "buy" and current_price >= halfway) or (side == "sell" and current_price <= halfway):
+                    be_sl = entry_price
+                    client.place_stop_order(
+                        product_id=product_id,
+                        size=size,
+                        side="sell" if side == "buy" else "buy",
+                        stop_price=be_sl,
+                        limit_price=be_sl,
+                        order_type=OrderType.LIMIT
+                    )
+                    print(f"🔄 SL moved to BE at {be_sl}")
+                    moved_to_be = True
+            else:
+                new_sl = round(current_price - trail_distance, 2) if side == "buy" else round(current_price + trail_distance, 2)
+                client.place_stop_order(
+                    product_id=product_id,
+                    size=size,
+                    side="sell" if side == "buy" else "buy",
+                    stop_price=new_sl,
+                    limit_price=new_sl,
+                    order_type=OrderType.LIMIT
+                )
+            time.sleep(15)
+    except Exception as e:
+        print(f"❌ Error in SL monitor: {e}")
 
 # === WAIT FOR NEXT 1M CANDLE ===
 def wait_until_next_1min():
