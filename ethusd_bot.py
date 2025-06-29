@@ -61,7 +61,7 @@ risk_amount = capital * RISK_PERCENT
         size=lot_size,
         side=side,
         limit_price=entry_price,
-        order_type=OrderType.LIMIT
+        order_type=OrderType.MARKET
     )
 
     print(f"🛑 SL placed at {sl_price}")
@@ -99,7 +99,7 @@ while True:
                     side="sell" if side == "buy" else "buy",
                     stop_price=be_sl,
                     limit_price=be_sl,
-                    order_type=OrderType.LIMIT
+                    order_type=OrderType.MARKET
                 )
                 print(f"🔄 SL moved to BE at {be_sl}")
                 moved_to_be = True
@@ -111,7 +111,7 @@ while True:
                 side="sell" if side == "buy" else "buy",
                 stop_price=new_sl,
                 limit_price=new_sl,
-                order_type=OrderType.LIMIT
+                order_type=OrderType.MARKET
             )
             print(f"🔁 Trailing SL moved to {new_sl}")
 
