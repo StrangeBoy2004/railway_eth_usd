@@ -42,7 +42,7 @@ def has_open_position(client, product_id): try: pos = client.get_position(produc
 
 === PLACE ORDER ===
 
-def place_order(client, capital, entry_price, side, product_id): try: RISK_PERCENT = 0.10 SL_PERCENT = 0.01 TP_MULTIPLIER = 3 LEVERAGE = 1 MIN_LOT_SIZE = 1
+def place_order(client, capital, entry_price, side, product_id): try: RISK_PERCENT = 0.10 SL_PERCENT = 0.01 TP_MULTIPLIER = 3 LEVERAGE = 2 MIN_LOT_SIZE = 1
 
 risk_amount = capital * RISK_PERCENT
     sl_usd = capital * SL_PERCENT
