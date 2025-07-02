@@ -216,7 +216,7 @@ if __name__ == "__main__":
                     else:
                         print("❌ No trade this candle.")
                 except KeyboardInterrupt:
-                    print("\n🚪 Bot stopped manually.")
+                    print("\n🚪 Bot stopped manually.") 
                     break
                 except Exception as e:
                     print(f"❌ Error: {e}")
