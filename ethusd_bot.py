@@ -50,7 +50,7 @@ def setup_trade_log():
 def fetch_eth_candles(symbol="ETH/USDT", timeframe="1m", limit=100):
     exchange = ccxt.binance()
     try:
-        print("📅 Fetching 1m candles from Binance...")
+        print("🗕️ Fetching 1m candles from Binance...")
         ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
         df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
@@ -120,9 +120,9 @@ def place_order(client, capital, side, product_id):
             size=lot_size,
             side="sell" if side == "buy" else "buy",
             limit_price=tp_price,
-            order_type=OrderType.LIMIT
+            order_type=OrderType.MARKET
         )
-        print(f"🎯 TP placed at {tp_price}")
+        print(f"🌟 TP placed at {tp_price}")
 
         # === Place SL ===
         client.place_stop_order(
@@ -131,9 +131,9 @@ def place_order(client, capital, side, product_id):
             side="sell" if side == "buy" else "buy",
             stop_price=sl_price,
             limit_price=sl_price,
-            order_type=OrderType.LIMIT
+            order_type=OrderType.MARKET
         )
-        print(f"🛑 SL placed at {sl_price}")
+        print(f"🚩 SL placed at {sl_price}")
 
         with open("trades_log.txt", "a") as f:
             f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size}\n")
@@ -167,7 +167,7 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                     side="sell" if side == "buy" else "buy",
                     stop_price=be_price,
                     limit_price=be_price,
-                    order_type=OrderType.LIMIT
+                    order_type=OrderType.MARKET
                 )
                 print(f"🔄 SL moved to BE at {be_price}")
                 moved_to_be = True
@@ -179,7 +179,7 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                 side="sell" if side == "buy" else "buy",
                 stop_price=new_sl,
                 limit_price=new_sl,
-                order_type=OrderType.LIMIT
+                order_type=OrderType.MARKET
             )
         time.sleep(15)
 
@@ -220,7 +220,7 @@ if __name__ == "__main__":
                     break
                 except Exception as e:
                     print(f"❌ Error: {e}")
-                    time.sleep(20)
+                    time.sleep(30)
         else:
             print("⚠️ USD balance fetch failed.")
     else:
