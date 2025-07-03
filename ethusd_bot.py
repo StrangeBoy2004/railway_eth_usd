@@ -205,11 +205,11 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
 # === WAIT FOR NEXT 1M CANDLE ===
 def wait_until_next_1min():
     now = datetime.now()
-    wait_seconds = 60 - now.second
-    print(f"🕒 Waiting {wait_seconds}s until next 1m candle...")
-    time.sleep(wait_seconds)
+    delay = 60 - (now.second + now.microsecond / 1_000_000)
+    print(f"🕒 Waiting {int(delay)}s until next 1m candle...")
+    time.sleep(delay)
 
-# === MAIN LOOP ===
+
 if __name__ == "__main__":
     client = authenticate()
     if client:
