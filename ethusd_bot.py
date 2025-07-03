@@ -100,14 +100,14 @@ def place_order(client, capital, side, product_id):
         LEVERAGE = 1
         MIN_LOT_SIZE = 1
 
-        # === Dynamic lot size calculation
+        # === Calculate lot size based on risk and capital
         risk_amount = capital * RISK_PERCENT
         sl_usd = capital * SL_PERCENT
         tp_usd = sl_usd * TP_MULTIPLIER
         raw_lot_size = risk_amount / (sl_usd * LEVERAGE)
         lot_size = max(round(raw_lot_size, 3), MIN_LOT_SIZE)
 
-        # === Market entry
+        # === Place MARKET entry order
         order = client.place_order(
             product_id=product_id,
             size=lot_size,
@@ -116,22 +116,20 @@ def place_order(client, capital, side, product_id):
         )
         entry_price = float(order.get('limit_price') or order.get('average_fill_price'))
 
-        # === Calculate SL & TP prices
+        # === Calculate SL and TP prices
         sl_price = round(entry_price - sl_usd, 2) if side == "buy" else round(entry_price + sl_usd, 2)
         tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
 
-       # ✅ Fetch current mark price
-         ticker = client.get_ticker(str(product_id))
-         mark_price = float(ticker["mark_price"])
+        # ✅ Fetch current mark price to prevent SL rejection
+        ticker = client.get_ticker(str(product_id))
+        mark_price = float(ticker["mark_price"])
 
-       # ✅ Validate SL: prevent immediate trigger
-         if side == "buy" and sl_price >= mark_price:
-             sl_price = round(mark_price - 0.5, 2)
-         elif side == "sell" and sl_price <= mark_price:
-             sl_price = round(mark_price + 0.5, 2)
+        if side == "buy" and sl_price >= mark_price:
+            sl_price = round(mark_price - 0.5, 2)
+        elif side == "sell" and sl_price <= mark_price:
+            sl_price = round(mark_price + 0.5, 2)
 
-
-        # === ✅ Place TP (LIMIT)
+        # ✅ Place Take Profit order (LIMIT)
         client.place_order(
             product_id=product_id,
             size=lot_size,
@@ -141,22 +139,21 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🎯 TP placed at {tp_price}")
 
-        # === ✅ Place SL (MARKET Stop Order)
+        # ✅ Place Stop Loss order (STOP_MARKET)
         client.place_stop_order(
             product_id=product_id,
             size=lot_size,
             side="sell" if side == "buy" else "buy",
             stop_price=sl_price,
-             order_type=OrderType.LIMIT,
-            isTrailingStopLoss=False
+            order_type=OrderType.STOP_MARKET
         )
         print(f"🚩 SL placed at {sl_price}")
 
-        # === Log the order
+        # ✅ Log the trade
         with open("trades_log.txt", "a") as f:
             f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size}\n")
 
-        # === Monitor trailing SL after halfway to TP
+        # ✅ Start monitoring trailing SL after halfway to TP
         monitor_trailing_stop(client, product_id, entry_price, side, tp_usd)
 
     except Exception as e:
@@ -165,43 +162,50 @@ def place_order(client, capital, side, product_id):
 
 # === TRAILING SL MONITOR ===
 def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
-    halfway = entry_price + tp_usd / 2 if side == "buy" else entry_price - tp_usd / 2
+    halfway = entry_price + (tp_usd / 2) if side == "buy" else entry_price - (tp_usd / 2)
     trail_distance = tp_usd / 2
     moved_to_be = False
 
     while True:
-        pos = client.get_position(product_id=product_id)
-        if not pos or float(pos.get("size", 0)) == 0:
-            print("🚪 Position closed.")
-            break
+        try:
+            pos = client.get_position(product_id=product_id)
+            if not pos or float(pos.get("size", 0)) == 0:
+                print("🚪 Position closed.")
+                break
 
-        price = float(pos.get("mark_price", 0))
-        size = float(pos.get("size"))
+            current_price = float(pos.get("mark_price", 0))
+            size = float(pos.get("size"))
 
-        if not moved_to_be:
-            if (side == "buy" and price >= halfway) or (side == "sell" and price <= halfway):
-                be_price = entry_price
+            if not moved_to_be:
+                # ✅ Move SL to BE after halfway to TP
+                if (side == "buy" and current_price >= halfway) or (side == "sell" and current_price <= halfway):
+                    be_price = round(entry_price, 2)
+                    client.place_stop_order(
+                        product_id=product_id,
+                        size=size,
+                        side="sell" if side == "buy" else "buy",
+                        stop_price=be_price,
+                        order_type=OrderType.STOP_MARKET
+                    )
+                    print(f"🔄 SL moved to BE at {be_price}")
+                    moved_to_be = True
+            else:
+                # ✅ Update Trailing SL
+                new_sl = round(current_price - trail_distance, 2) if side == "buy" else round(current_price + trail_distance, 2)
                 client.place_stop_order(
                     product_id=product_id,
                     size=size,
                     side="sell" if side == "buy" else "buy",
-                    stop_price=be_price,
-                    order_type=OrderType.MARKET,
-                    isTrailingStopLoss=False
+                    stop_price=new_sl,
+                    order_type=OrderType.STOP_MARKET
                 )
-                print(f"🔄 SL moved to BE at {be_price}")
-                moved_to_be = True
-        else:
-            new_sl = round(price - trail_distance, 2) if side == "buy" else round(price + trail_distance, 2)
-            client.place_stop_order(
-                product_id=product_id,
-                size=size,
-                side="sell" if side == "buy" else "buy",
-                stop_price=new_sl,
-                order_type=OrderType.MARKET,
-                isTrailingStopLoss=False
-            )
-        time.sleep(15)
+                print(f"📉 Trailing SL updated to {new_sl}")
+
+            time.sleep(15)
+
+        except Exception as e:
+            print(f"❌ Trailing SL error: {e}")
+            time.sleep(15)
 
 # === WAIT FOR NEXT 1M CANDLE ===
 def wait_until_next_1min():
