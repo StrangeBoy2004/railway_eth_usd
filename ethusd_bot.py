@@ -96,12 +96,14 @@ def place_order(client, capital, side, product_id):
         LEVERAGE = 1
         MIN_LOT_SIZE = 1
 
+        # === Dynamic lot size calculation
         risk_amount = capital * RISK_PERCENT
         sl_usd = capital * SL_PERCENT
         tp_usd = sl_usd * TP_MULTIPLIER
         raw_lot_size = risk_amount / (sl_usd * LEVERAGE)
         lot_size = max(round(raw_lot_size, 3), MIN_LOT_SIZE)
 
+        # === Market entry
         order = client.place_order(
             product_id=product_id,
             size=lot_size,
@@ -110,17 +112,21 @@ def place_order(client, capital, side, product_id):
         )
         entry_price = float(order.get('limit_price') or order.get('average_fill_price'))
 
+        # === Calculate SL & TP prices
         sl_price = round(entry_price - sl_usd, 2) if side == "buy" else round(entry_price + sl_usd, 2)
         tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
 
-        ticker = client.get_ticker(identifier=str(product_id))
+        # === ✅ Get current mark price
+        ticker = client.get_ticker(str(product_id))
         mark_price = float(ticker["mark_price"])
 
+        # === ✅ Adjust SL to avoid instant trigger
         if side == "buy" and sl_price >= mark_price:
             sl_price = round(mark_price - 0.5, 2)
         elif side == "sell" and sl_price <= mark_price:
             sl_price = round(mark_price + 0.5, 2)
 
+        # === ✅ Place TP (LIMIT)
         client.place_order(
             product_id=product_id,
             size=lot_size,
@@ -130,6 +136,7 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🎯 TP placed at {tp_price}")
 
+        # === ✅ Place SL (MARKET Stop Order)
         client.place_stop_order(
             product_id=product_id,
             size=lot_size,
@@ -138,16 +145,18 @@ def place_order(client, capital, side, product_id):
             order_type=OrderType.MARKET,
             isTrailingStopLoss=False
         )
-
         print(f"🚩 SL placed at {sl_price}")
 
+        # === Log the order
         with open("trades_log.txt", "a") as f:
             f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size}\n")
 
+        # === Monitor trailing SL after halfway to TP
         monitor_trailing_stop(client, product_id, entry_price, side, tp_usd)
 
     except Exception as e:
         print(f"❌ Failed to place order: {e}")
+
 
 # === TRAILING SL MONITOR ===
 def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
