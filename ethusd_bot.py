@@ -97,43 +97,57 @@ def has_open_position(client, product_id):
 
 # === PLACE MARKET ORDER + SL/TP ===
 def place_order(client, capital, side, product_id):
+    global LOT_MULTIPLIER, INITIAL_CAPITAL
+
     try:
-        global LOT_SIZE
         RISK_PERCENT = 0.10
         SL_PERCENT = 0.01
         TP_MULTIPLIER = 3
         LEVERAGE = 1
+        MIN_LOT_SIZE = 1
 
-        if capital >= STARTING_CAPITAL * 1.2:
-            LOT_SIZE = round(LOT_SIZE * 1.05, 2)
-            print(f"📈 Lot size increased to {LOT_SIZE} due to capital growth.")
+        # Initialize INITIAL_CAPITAL if not already set
+        if INITIAL_CAPITAL is None:
+            INITIAL_CAPITAL = capital
+            print(f"📌 Initial Capital Set: ${INITIAL_CAPITAL:.2f}")
+
+        # Dynamically increase lot multiplier every +20% gain
+        growth = (capital - INITIAL_CAPITAL) / INITIAL_CAPITAL
+        if growth >= 0.20:
+            LOT_MULTIPLIER *= 1.05
+            INITIAL_CAPITAL = capital  # Reset base for next 20% gain
+            print(f"📈 Capital grew 20%. Lot multiplier increased to: {LOT_MULTIPLIER:.2f}")
 
         sl_usd = capital * SL_PERCENT
         tp_usd = sl_usd * TP_MULTIPLIER
+        lot_size = max(round(MIN_LOT_SIZE * LOT_MULTIPLIER, 3), MIN_LOT_SIZE)
 
+        # ✅ Place MARKET order
         order = client.place_order(
             product_id=product_id,
-            size=LOT_SIZE,
+            size=lot_size,
             side=side,
             order_type=OrderType.MARKET
         )
-        entry_price = float(order.get('limit_price') or order.get('average_fill_price'))
 
+        entry_price = float(order.get('limit_price') or order.get('average_fill_price'))
         sl_price = round(entry_price - sl_usd, 2) if side == "buy" else round(entry_price + sl_usd, 2)
         tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
 
+        # 🎯 TP
         client.place_order(
             product_id=product_id,
-            size=LOT_SIZE,
+            size=lot_size,
             side="sell" if side == "buy" else "buy",
             limit_price=tp_price,
             order_type=OrderType.LIMIT
         )
         print(f"🎯 TP placed at {tp_price}")
 
+        # 🚩 SL
         client.place_stop_order(
             product_id=product_id,
-            size=LOT_SIZE,
+            size=lot_size,
             side="sell" if side == "buy" else "buy",
             stop_price=sl_price,
             order_type=OrderType.STOP_MARKET
@@ -141,12 +155,13 @@ def place_order(client, capital, side, product_id):
         print(f"🚩 SL placed at {sl_price}")
 
         with open("trades_log.txt", "a") as f:
-            f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {LOT_SIZE}\n")
+            f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size} | Multiplier: {LOT_MULTIPLIER:.2f}\n")
 
         monitor_trailing_stop(client, product_id, entry_price, side, tp_usd)
 
     except Exception as e:
         print(f"❌ Failed to place order: {e}")
+
 
 # === TRADE MONITOR: MOVE SL AFTER HALF TP ===
 def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
@@ -201,6 +216,8 @@ if __name__ == "__main__":
         if balance:
             setup_trade_log()
             product_id = 1699
+            LOT_MULTIPLIER = 1.0  # Starts at 1 lot
+            INITIAL_CAPITAL = None
             print("\n🔁 Starting 1m Strategy Loop...")
             while True:
                 try:
