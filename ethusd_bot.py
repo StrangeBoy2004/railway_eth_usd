@@ -70,12 +70,11 @@ def get_trade_signal(df):
     prev = df.iloc[-2]
     last = df.iloc[-1]
     print("\n📊 Strategy Check (Latest Candle):")
-    if prev["ema9"] < prev["ema15"] and last["ema9"] > last["ema15"]:
+    if last["ema9"] > last["ema15"]:
         return "buy"
-    elif prev["ema9"] > prev["ema15"] and last["ema9"] < last["ema15"]:
+    elif last["ema9"] < last["ema15"]:
         return "sell"
     return None
-
 # === CANCEL UNFILLED ORDERS ===
 def cancel_unfilled_orders(client, product_id):
     open_orders = client.get_live_orders(query={"product_id": product_id})
