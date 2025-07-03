@@ -1,6 +1,3 @@
-# === ETHUSD Futures Trading Bot (Delta Exchange Demo)
-# === Full Version: Market Entry + Hybrid OCO SL/TP + Trailing SL after Halfway TP ===
-
 from delta_rest_client import DeltaRestClient, OrderType
 from datetime import datetime
 import ccxt
@@ -84,13 +81,6 @@ def cancel_unfilled_orders(client, product_id):
         print(f"❌ Cancelled unfilled order ID: {order['id']}")
 
 # === CHECK POSITION ===
-def cancel_unfilled_orders(client, product_id):
-    open_orders = client.get_live_orders(query={"product_id": product_id})
-    for order in open_orders:
-        client.cancel_order(product_id=product_id, order_id=order['id'])
-        print(f"❌ Cancelled unfilled order ID: {order['id']}")
-
-# === CHECK POSITION ===
 def has_open_position(client, product_id):
     pos = client.get_position(product_id=product_id)
     return pos and float(pos.get("size", 0)) > 0
@@ -124,10 +114,9 @@ def place_order(client, capital, side, product_id):
         sl_price = round(entry_price - sl_usd, 2) if side == "buy" else round(entry_price + sl_usd, 2)
         tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
 
-        # ✅ Fetch current mark price to validate SL
-     ticker = client.get_ticker()  # This usually returns a list or dict of tickers
-     mark_price = float([t for t in ticker if t["product_id"] == product_id][0]["mark_price"])
-
+        # ✅ Fetch current mark price safely
+        tickers = client.get_ticker()
+        mark_price = float([t for t in tickers if t["product_id"] == product_id][0]["mark_price"])
 
         # ✅ Prevent SL from triggering immediately
         if side == "buy" and sl_price >= mark_price:
@@ -165,7 +154,6 @@ def place_order(client, capital, side, product_id):
     except Exception as e:
         print(f"❌ Failed to place order: {e}")
 
-
 # === TRADE MONITOR: MOVE SL AFTER HALF TP ===
 def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
     halfway = entry_price + tp_usd / 2 if side == "buy" else entry_price - tp_usd / 2
@@ -189,7 +177,7 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                     size=size,
                     side="sell" if side == "buy" else "buy",
                     stop_price=be_price,
-                    order_type=OrderType.MARKET,
+                    order_type=OrderType.STOP_MARKET,
                     isTrailingStopLoss=False
                 )
                 print(f"🔄 SL moved to BE at {be_price}")
@@ -201,7 +189,7 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                 size=size,
                 side="sell" if side == "buy" else "buy",
                 stop_price=new_sl,
-                order_type=OrderType.MARKET,
+                order_type=OrderType.STOP_MARKET,
                 isTrailingStopLoss=False
             )
         time.sleep(15)
@@ -221,8 +209,6 @@ if __name__ == "__main__":
         if balance:
             setup_trade_log()
             product_id = 1699
-            LOT_MULTIPLIER = 1.0  # Starts at 1 lot
-            INITIAL_CAPITAL = None
             print("\n🔁 Starting 1m Strategy Loop...")
             while True:
                 try:
