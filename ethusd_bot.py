@@ -98,21 +98,22 @@ def has_open_position(client, product_id):
 # === PLACE MARKET ORDER + SL/TP ===
 def place_order(client, capital, side, product_id):
     try:
+        global LOT_SIZE
         RISK_PERCENT = 0.10
         SL_PERCENT = 0.01
         TP_MULTIPLIER = 3
         LEVERAGE = 1
-        MIN_LOT_SIZE = 1
 
-        risk_amount = capital * RISK_PERCENT
+        if capital >= STARTING_CAPITAL * 1.2:
+            LOT_SIZE = round(LOT_SIZE * 1.05, 2)
+            print(f"📈 Lot size increased to {LOT_SIZE} due to capital growth.")
+
         sl_usd = capital * SL_PERCENT
         tp_usd = sl_usd * TP_MULTIPLIER
-        raw_lot_size = risk_amount / (sl_usd * LEVERAGE)
-        lot_size = max(round(raw_lot_size, 3), MIN_LOT_SIZE)
 
         order = client.place_order(
             product_id=product_id,
-            size=lot_size,
+            size=LOT_SIZE,
             side=side,
             order_type=OrderType.MARKET
         )
@@ -123,7 +124,7 @@ def place_order(client, capital, side, product_id):
 
         client.place_order(
             product_id=product_id,
-            size=lot_size,
+            size=LOT_SIZE,
             side="sell" if side == "buy" else "buy",
             limit_price=tp_price,
             order_type=OrderType.LIMIT
@@ -132,7 +133,7 @@ def place_order(client, capital, side, product_id):
 
         client.place_stop_order(
             product_id=product_id,
-            size=lot_size,
+            size=LOT_SIZE,
             side="sell" if side == "buy" else "buy",
             stop_price=sl_price,
             order_type=OrderType.STOP_MARKET
@@ -140,7 +141,7 @@ def place_order(client, capital, side, product_id):
         print(f"🚩 SL placed at {sl_price}")
 
         with open("trades_log.txt", "a") as f:
-            f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size}\n")
+            f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {LOT_SIZE}\n")
 
         monitor_trailing_stop(client, product_id, entry_price, side, tp_usd)
 
