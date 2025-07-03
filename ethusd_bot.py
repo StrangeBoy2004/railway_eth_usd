@@ -120,15 +120,16 @@ def place_order(client, capital, side, product_id):
         sl_price = round(entry_price - sl_usd, 2) if side == "buy" else round(entry_price + sl_usd, 2)
         tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
 
-        # === ✅ Get current mark price
-        ticker = client.get_ticker(str(product_id))
-        mark_price = float(ticker["mark_price"])
+       # ✅ Fetch current mark price
+         ticker = client.get_ticker(str(product_id))
+         mark_price = float(ticker["mark_price"])
 
-        # === ✅ Adjust SL to avoid instant trigger
-        if side == "buy" and sl_price >= mark_price:
-            sl_price = round(mark_price - 0.5, 2)
-        elif side == "sell" and sl_price <= mark_price:
-            sl_price = round(mark_price + 0.5, 2)
+       # ✅ Validate SL: prevent immediate trigger
+         if side == "buy" and sl_price >= mark_price:
+             sl_price = round(mark_price - 0.5, 2)
+         elif side == "sell" and sl_price <= mark_price:
+             sl_price = round(mark_price + 0.5, 2)
+
 
         # === ✅ Place TP (LIMIT)
         client.place_order(
