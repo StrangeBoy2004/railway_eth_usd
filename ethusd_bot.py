@@ -125,7 +125,9 @@ def place_order(client, capital, side, product_id):
         tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
 
         # ✅ Fetch current mark price to validate SL
-        mark_price = float(client.get_ticker(product_id=product_id)['mark_price'])
+     ticker = client.get_ticker()  # This usually returns a list or dict of tickers
+     mark_price = float([t for t in ticker if t["product_id"] == product_id][0]["mark_price"])
+
 
         # ✅ Prevent SL from triggering immediately
         if side == "buy" and sl_price >= mark_price:
