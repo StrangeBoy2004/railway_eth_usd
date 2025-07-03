@@ -84,6 +84,13 @@ def cancel_unfilled_orders(client, product_id):
         print(f"❌ Cancelled unfilled order ID: {order['id']}")
 
 # === CHECK POSITION ===
+def cancel_unfilled_orders(client, product_id):
+    open_orders = client.get_live_orders(query={"product_id": product_id})
+    for order in open_orders:
+        client.cancel_order(product_id=product_id, order_id=order['id'])
+        print(f"❌ Cancelled unfilled order ID: {order['id']}")
+
+# === CHECK POSITION ===
 def has_open_position(client, product_id):
     pos = client.get_position(product_id=product_id)
     return pos and float(pos.get("size", 0)) > 0
@@ -103,19 +110,17 @@ def place_order(client, capital, side, product_id):
         raw_lot_size = risk_amount / (sl_usd * LEVERAGE)
         lot_size = max(round(raw_lot_size, 3), MIN_LOT_SIZE)
 
-        # === MARKET Entry ===
         order = client.place_order(
             product_id=product_id,
             size=lot_size,
             side=side,
             order_type=OrderType.MARKET
         )
-        entry_price = float(order.get('average_fill_price', order.get('limit_price', 0)))
+        entry_price = float(order.get('limit_price') or order.get('average_fill_price'))
 
         sl_price = round(entry_price - sl_usd, 2) if side == "buy" else round(entry_price + sl_usd, 2)
         tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
 
-        # === Place TP as LIMIT ===
         client.place_order(
             product_id=product_id,
             size=lot_size,
@@ -125,26 +130,22 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🎯 TP placed at {tp_price}")
 
-        # === Place SL as stop_market_order ===
         client.place_stop_order(
             product_id=product_id,
             size=lot_size,
             side="sell" if side == "buy" else "buy",
             stop_price=sl_price,
-            order_type="stop_market_order"  # ← key fix
+            order_type=OrderType.STOP_MARKET
         )
-        print(f"🛑 SL placed at {sl_price}")
+        print(f"🚩 SL placed at {sl_price}")
 
-        # === Log ===
         with open("trades_log.txt", "a") as f:
             f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size}\n")
 
-        # === Monitor Trailing SL ===
         monitor_trailing_stop(client, product_id, entry_price, side, tp_usd)
 
     except Exception as e:
         print(f"❌ Failed to place order: {e}")
-
 
 # === TRADE MONITOR: MOVE SL AFTER HALF TP ===
 def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
@@ -169,8 +170,7 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                     size=size,
                     side="sell" if side == "buy" else "buy",
                     stop_price=be_price,
-                    limit_price=be_price,
-                    order_type=OrderType.MARKET
+                    order_type=OrderType.STOP_MARKET
                 )
                 print(f"🔄 SL moved to BE at {be_price}")
                 moved_to_be = True
@@ -181,8 +181,7 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                 size=size,
                 side="sell" if side == "buy" else "buy",
                 stop_price=new_sl,
-                limit_price=new_sl,
-                order_type=OrderType.MARKET
+                order_type=OrderType.STOP_MARKET
             )
         time.sleep(15)
 
