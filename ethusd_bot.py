@@ -67,14 +67,18 @@ def apply_strategy(df):
 
 # === DETERMINE SIGNAL ===
 def get_trade_signal(df):
+    last_2 = df.iloc[-3]
     prev = df.iloc[-2]
     last = df.iloc[-1]
     print("\n📊 Strategy Check (Latest Candle):")
-    if last["ema9"] > last["ema15"]:
+    
+    # Only trigger on true fresh crossover
+    if last_2["ema9"] < last_2["ema15"] and prev["ema9"] < prev["ema15"] and last["ema9"] > last["ema15"]:
         return "buy"
-    elif last["ema9"] < last["ema15"]:
+    elif last_2["ema9"] > last_2["ema15"] and prev["ema9"] > prev["ema15"] and last["ema9"] < last["ema15"]:
         return "sell"
     return None
+
 # === CANCEL UNFILLED ORDERS ===
 def cancel_unfilled_orders(client, product_id):
     open_orders = client.get_live_orders(query={"product_id": product_id})
