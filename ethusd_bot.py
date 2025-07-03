@@ -1,3 +1,6 @@
+# === ETHUSD Futures Trading Bot (Delta Exchange Demo)
+# === Full Version: Market Entry + Hybrid OCO SL/TP + Trailing SL after Halfway TP ===
+
 from delta_rest_client import DeltaRestClient, OrderType
 from datetime import datetime
 import ccxt
@@ -10,7 +13,7 @@ import os
 API_KEY = os.getenv("DELTA_API_KEY") or 'RzC8BXl98EeFh3i1pOwRAgjqQpLLII'
 API_SECRET = os.getenv("DELTA_API_SECRET") or 'yP1encFFWbrPkm5u58ak3qhHD3Eupv9fP5Rf9AmPmi60RHTreYuBdNv1a2bo'
 BASE_URL = 'https://cdn-ind.testnet.deltaex.org'
-USD_ASSET_ID = 3 
+USD_ASSET_ID = 3
 
 # === AUTHENTICATION ===
 def authenticate():
@@ -85,7 +88,7 @@ def has_open_position(client, product_id):
     pos = client.get_position(product_id=product_id)
     return pos and float(pos.get("size", 0)) > 0
 
-# === PLACE MARKET ORDER + SL/TP ===
+# === PLACE ORDER + SL/TP ===
 def place_order(client, capital, side, product_id):
     try:
         RISK_PERCENT = 0.10
@@ -94,14 +97,12 @@ def place_order(client, capital, side, product_id):
         LEVERAGE = 1
         MIN_LOT_SIZE = 1
 
-        # Dynamic lot sizing (based on capital)
         risk_amount = capital * RISK_PERCENT
         sl_usd = capital * SL_PERCENT
         tp_usd = sl_usd * TP_MULTIPLIER
         raw_lot_size = risk_amount / (sl_usd * LEVERAGE)
         lot_size = max(round(raw_lot_size, 3), MIN_LOT_SIZE)
 
-        # Market entry
         order = client.place_order(
             product_id=product_id,
             size=lot_size,
@@ -110,21 +111,17 @@ def place_order(client, capital, side, product_id):
         )
         entry_price = float(order.get('limit_price') or order.get('average_fill_price'))
 
-        # SL and TP calculation
         sl_price = round(entry_price - sl_usd, 2) if side == "buy" else round(entry_price + sl_usd, 2)
         tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
 
-        # ✅ Fetch current mark price safely
-        tickers = client.get_ticker()
-        mark_price = float([t for t in tickers if t["product_id"] == product_id][0]["mark_price"])
+        ticker = client.get_ticker(identifier=str(product_id))
+        mark_price = float(ticker["mark_price"])
 
-        # ✅ Prevent SL from triggering immediately
         if side == "buy" and sl_price >= mark_price:
             sl_price = round(mark_price - 0.5, 2)
         elif side == "sell" and sl_price <= mark_price:
             sl_price = round(mark_price + 0.5, 2)
 
-        # 🟢 Place Take Profit (Limit)
         client.place_order(
             product_id=product_id,
             size=lot_size,
@@ -134,7 +131,6 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🎯 TP placed at {tp_price}")
 
-        # 🔴 Place Stop Loss (Stop-Market)
         client.place_stop_order(
             product_id=product_id,
             size=lot_size,
@@ -144,17 +140,15 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🚩 SL placed at {sl_price}")
 
-        # 📒 Log the trade
         with open("trades_log.txt", "a") as f:
             f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size}\n")
 
-        # 🔁 Monitor trailing SL
         monitor_trailing_stop(client, product_id, entry_price, side, tp_usd)
 
     except Exception as e:
         print(f"❌ Failed to place order: {e}")
 
-# === TRADE MONITOR: MOVE SL AFTER HALF TP ===
+# === TRAILING SL MONITOR ===
 def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
     halfway = entry_price + tp_usd / 2 if side == "buy" else entry_price - tp_usd / 2
     trail_distance = tp_usd / 2
@@ -177,7 +171,7 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                     size=size,
                     side="sell" if side == "buy" else "buy",
                     stop_price=be_price,
-                    order_type=OrderType.STOP_MARKET,
+                    order_type=OrderType.MARKET,
                     isTrailingStopLoss=False
                 )
                 print(f"🔄 SL moved to BE at {be_price}")
@@ -189,7 +183,7 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                 size=size,
                 side="sell" if side == "buy" else "buy",
                 stop_price=new_sl,
-                order_type=OrderType.STOP_MARKET,
+                order_type=OrderType.MARKET,
                 isTrailingStopLoss=False
             )
         time.sleep(15)
@@ -227,7 +221,7 @@ if __name__ == "__main__":
                     else:
                         print("❌ No trade this candle.")
                 except KeyboardInterrupt:
-                    print("\n🚪 Bot stopped manually.") 
+                    print("\n🚪 Bot stopped manually.")
                     break
                 except Exception as e:
                     print(f"❌ Error: {e}")
