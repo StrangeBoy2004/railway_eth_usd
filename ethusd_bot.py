@@ -64,8 +64,8 @@ def fetch_eth_candles(symbol="ETH/USDT", timeframe="1m", limit=100):
 
 # === APPLY STRATEGY ===
 def apply_strategy(df):
-    df["ema9"] = df["close"].ewm(span=9).mean()
-    df["ema15"] = df["close"].ewm(span=15).mean()
+    df["ema6"] = df["close"].ewm(span=6).mean()
+    df["ema12"] = df["close"].ewm(span=12).mean()
     return df
 
 # === GET SIGNAL ===
@@ -73,9 +73,9 @@ def get_trade_signal(df):
     prev = df.iloc[-2]
     last = df.iloc[-1]
     print("\n📊 Strategy Check (Latest Candle):")
-    if prev["ema9"] < prev["ema15"] and last["ema9"] > last["ema15"]:
+    if prev["ema6"] < prev["ema12"] and last["ema6"] > last["ema12"]:
         return "buy"
-    elif prev["ema9"] > prev["ema15"] and last["ema9"] < last["ema15"]:
+    elif prev["ema6"] > prev["ema12"] and last["ema6"] < last["ema12"]:
         return "sell"
     return None
 
@@ -99,16 +99,15 @@ def place_order(client, capital, side, product_id):
         TP_MULTIPLIER = 3
         LEVERAGE = 1
         MIN_LOT_SIZE = 1
-        MIN_SL_DISTANCE = 1.0  # ✅ Minimum $ distance from mark price to avoid STOP_MARKET errors
 
-        # Dynamic lot sizing
+        # Calculate SL/TP in USD terms
         risk_amount = capital * RISK_PERCENT
         sl_usd = capital * SL_PERCENT
         tp_usd = sl_usd * TP_MULTIPLIER
         raw_lot_size = risk_amount / (sl_usd * LEVERAGE)
         lot_size = max(round(raw_lot_size, 3), MIN_LOT_SIZE)
 
-        # Place market order
+        # Market entry
         order = client.place_order(
             product_id=product_id,
             size=lot_size,
@@ -117,27 +116,25 @@ def place_order(client, capital, side, product_id):
         )
         entry_price = float(order.get('limit_price') or order.get('average_fill_price'))
 
-        # Calculate SL and TP
+        # SL and TP calculation
         sl_price = round(entry_price - sl_usd, 2) if side == "buy" else round(entry_price + sl_usd, 2)
         tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
 
-        # ✅ Get mark price to validate SL distance
+        # ✅ Get mark price and ensure SL is not too close
         ticker = client.get_ticker(str(product_id))
         mark_price = float(ticker.get("mark_price", 0))
-        print(f"📉 Entry: {entry_price} | Mark: {mark_price} | SL: {sl_price}")
 
-        # ✅ Ensure SL is not too close to mark price
-        if side == "buy" and sl_price >= mark_price - MIN_SL_DISTANCE:
-            sl_price = round(mark_price - MIN_SL_DISTANCE, 2)
-        elif side == "sell" and sl_price <= mark_price + MIN_SL_DISTANCE:
-            sl_price = round(mark_price + MIN_SL_DISTANCE, 2)
+        if side == "buy" and sl_price >= mark_price - 0.1:
+            sl_price = round(mark_price - 1.0, 2)
+        elif side == "sell" and sl_price <= mark_price + 0.1:
+            sl_price = round(mark_price + 1.0, 2)
 
-        # ✅ Final SL validation
+        # ✅ Final SL safety check
         if sl_price <= 0:
-            print(f"❌ Invalid SL price: {sl_price}. Aborting order.")
+            print(f"❌ SL price {sl_price} is invalid. Aborting order.")
             return
 
-        # ✅ Place Take Profit (LIMIT)
+        # --- Place TP ---
         client.place_order(
             product_id=product_id,
             size=lot_size,
@@ -147,7 +144,7 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🎯 TP placed at {tp_price}")
 
-        # ✅ Place Stop Loss (STOP_MARKET)
+        # --- Place SL (Stop-Market) ---
         client.place_stop_order(
             product_id=product_id,
             size=lot_size,
@@ -157,19 +154,16 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🚩 SL placed at {sl_price}")
 
-        # Log trade
+        # --- Log trade ---
         with open("trades_log.txt", "a") as f:
-            f.write(f"{datetime.now()} | {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size}\n")
+            f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size}\n")
 
-        # Optional: monitor trailing stop (if needed)
+        # --- Optional: Monitor position for trailing SL ---
         monitor_trailing_stop(client, product_id, entry_price, side, tp_usd)
 
     except Exception as e:
         print(f"❌ Failed to place order: {e}")
-
-        
-# === TRAILING SL MONITOR ===
-def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
+ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
     halfway = entry_price + tp_usd / 2 if side == "buy" else entry_price - tp_usd / 2
     trail_distance = tp_usd / 2
     moved_to_be = False
@@ -218,7 +212,7 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
 
         except Exception as e:
             print(f"❌ Error in trailing SL monitor: {e}")
-            time.sleep(15)
+            time.sleep(15)       
 
 # === WAIT FOR NEXT CANDLE ===
 def wait_until_next_1min():
