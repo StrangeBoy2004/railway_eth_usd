@@ -94,71 +94,75 @@ def has_open_position(client, product_id):
 # === PLACE ORDER + SL/TP ===
 def place_order(client, capital, side, product_id):
     try:
-        RISK_PERCENT = 0.10
+        # === Strategy Parameters ===
         SL_PERCENT = 0.01
         TP_MULTIPLIER = 3
         LEVERAGE = 1
-        MIN_LOT_SIZE = 1
+        LOT_SIZE = 1  # Fixed 1 lot for now
 
-        # Dynamic lot sizing
-        risk_amount = capital * RISK_PERCENT
-        sl_usd = capital * SL_PERCENT
-        tp_usd = sl_usd * TP_MULTIPLIER
-        raw_lot_size = risk_amount / (sl_usd * LEVERAGE)
-        lot_size = max(round(raw_lot_size, 3), MIN_LOT_SIZE)
-
-        # Market entry
+        # === Place Market Order ===
         order = client.place_order(
             product_id=product_id,
-            size=lot_size,
+            size=LOT_SIZE,
             side=side,
             order_type=OrderType.MARKET
         )
-        entry_price = float(order.get('limit_price') or order.get('average_fill_price'))
 
-        # TP and SL prices
+        # === Get Entry Price ===
+        entry_price = float(order.get('limit_price') or order.get('average_fill_price'))
+        if not entry_price or entry_price <= 0:
+            print("❌ Invalid entry price, aborting trade.")
+            return
+
+        # === Calculate SL and TP based on entry price ===
+        sl_usd = entry_price * SL_PERCENT
+        tp_usd = sl_usd * TP_MULTIPLIER
+
         sl_price = round(entry_price - sl_usd, 2) if side == "buy" else round(entry_price + sl_usd, 2)
         tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
 
-        # ✅ Fetch current mark price safely
-        ticker = client.get_ticker(str(product_id))
-        mark_price = float(ticker.get("mark_price", 0))
+        # === Validate SL/TP ===
+        if sl_price <= 0 or tp_price <= 0:
+            print(f"❌ Invalid SL/TP: SL={sl_price}, TP={tp_price} — Skipping order.")
+            return
 
-        # ✅ Validate SL against mark price to avoid STOP_MARKET error
+        # === Get mark price to prevent SL trigger on entry ===
+        product_info = client.get_product(product_id)
+        identifier = product_info["symbol"]
+        ticker = client.get_ticker(identifier)
+        mark_price = float(ticker["mark_price"])
+
+        # Adjust SL if too close to current price
         if side == "buy" and sl_price >= mark_price:
             sl_price = round(mark_price - 0.5, 2)
         elif side == "sell" and sl_price <= mark_price:
             sl_price = round(mark_price + 0.5, 2)
 
-        if sl_price <= 0:
-            print("❌ SL price invalid or too low, skipping trade.")
-            return
-
-        # 🎯 Place Take Profit (LIMIT)
+        # === Place Take Profit ===
         client.place_order(
             product_id=product_id,
-            size=lot_size,
+            size=LOT_SIZE,
             side="sell" if side == "buy" else "buy",
             limit_price=tp_price,
             order_type=OrderType.LIMIT
         )
         print(f"🎯 TP placed at {tp_price}")
 
-        # 🚩 Place Stop Loss (STOP_MARKET)
+        # === Place Stop Loss ===
         client.place_stop_order(
             product_id=product_id,
-            size=lot_size,
+            size=LOT_SIZE,
             side="sell" if side == "buy" else "buy",
             stop_price=sl_price,
             order_type=OrderType.STOP_MARKET
         )
         print(f"🚩 SL placed at {sl_price}")
 
-        # Log the trade
+        # === Log the trade ===
         with open("trades_log.txt", "a") as f:
-            f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size}\n")
+            f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {LOT_SIZE}\n")
 
-        # Monitor trailing stop
+        # === Trailing Stop Logic ===
         monitor_trailing_stop(client, product_id, entry_price, side, tp_usd)
 
     except Exception as e:
