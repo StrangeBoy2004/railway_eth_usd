@@ -120,14 +120,16 @@ def place_order(client, capital, side, product_id):
         sl_price = round(entry_price - sl_usd, 2) if side == "buy" else round(entry_price + sl_usd, 2)
         tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
 
-        # ✅ Fetch current mark price to prevent SL rejection
-        ticker = client.get_ticker(str(product_id))
-        mark_price = float(ticker["mark_price"])
+        # ✅ Get current mark price for safety check
+        ticker = client.get_ticker(product_id)["mark_price"]
+        mark_price = float(ticker)
 
+        # ✅ Prevent SL from executing immediately
         if side == "buy" and sl_price >= mark_price:
             sl_price = round(mark_price - 0.5, 2)
         elif side == "sell" and sl_price <= mark_price:
             sl_price = round(mark_price + 0.5, 2)
+
 
         # ✅ Place Take Profit order (LIMIT)
         client.place_order(
@@ -139,7 +141,6 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🎯 TP placed at {tp_price}")
 
-        # ✅ Place Stop Loss order (STOP_MARKET)
         client.place_stop_order(
             product_id=product_id,
             size=lot_size,
@@ -147,6 +148,7 @@ def place_order(client, capital, side, product_id):
             stop_price=sl_price,
             order_type=OrderType.STOP_MARKET
         )
+
         print(f"🚩 SL placed at {sl_price}")
 
         # ✅ Log the trade
