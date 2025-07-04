@@ -64,8 +64,8 @@ def fetch_eth_candles(symbol="ETH/USDT", timeframe="1m", limit=100):
 
 # === APPLY STRATEGY ===
 def apply_strategy(df):
-    df["ema9"] = df["close"].ewm(span=6).mean()
-    df["ema15"] = df["close"].ewm(span=12).mean()
+    df["ema6"] = df["close"].ewm(span=6).mean()
+    df["ema12"] = df["close"].ewm(span=12).mean()
     return df
 
 # === GET SIGNAL ===
