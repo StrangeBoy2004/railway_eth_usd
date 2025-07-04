@@ -93,49 +93,48 @@ def has_open_position(client, product_id):
 
 # === PLACE ORDER + SL/TP ===
 def place_order(client, capital, side, product_id):
-    global INITIAL_CAPITAL, LOT_MULTIPLIER
     try:
-        if INITIAL_CAPITAL is None:
-            INITIAL_CAPITAL = capital
-            print(f"📌 Initial Capital Set: ${INITIAL_CAPITAL:.2f}")
+        RISK_PERCENT = 0.10
+        SL_PERCENT = 0.01
+        TP_MULTIPLIER = 3
+        LEVERAGE = 1
+        MIN_LOT_SIZE = 1
 
-        # Increase lot size if capital grows
-        if capital >= INITIAL_CAPITAL * 1.2:
-            LOT_MULTIPLIER *= 1.05
-            INITIAL_CAPITAL = capital
-            print(f"📈 Lot multiplier increased to {LOT_MULTIPLIER:.2f}")
+        # Dynamic lot sizing
+        risk_amount = capital * RISK_PERCENT
+        sl_usd = capital * SL_PERCENT
+        tp_usd = sl_usd * TP_MULTIPLIER
+        raw_lot_size = risk_amount / (sl_usd * LEVERAGE)
+        lot_size = max(round(raw_lot_size, 3), MIN_LOT_SIZE)
 
-        BASE_LOT = 1.0
-        lot_size = max(round(BASE_LOT * LOT_MULTIPLIER, 2), 1)
-
-        SL_USD = 1.0
-        TP_USD = 3.0
-
+        # Market entry
         order = client.place_order(
             product_id=product_id,
             size=lot_size,
             side=side,
             order_type=OrderType.MARKET
         )
+        entry_price = float(order.get('limit_price') or order.get('average_fill_price'))
 
-        entry_price = order.get("average_fill_price") or order.get("limit_price")
-        if not entry_price:
-            print("❌ Could not determine entry price.")
-            return
-        entry_price = float(entry_price)
+        # TP and SL prices
+        sl_price = round(entry_price - sl_usd, 2) if side == "buy" else round(entry_price + sl_usd, 2)
+        tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
 
-        sl_price = round(entry_price - SL_USD, 2) if side == "buy" else round(entry_price + SL_USD, 2)
-        tp_price = round(entry_price + TP_USD, 2) if side == "buy" else round(entry_price - TP_USD, 2)
-
-        # Fetch mark price to validate SL
+        # ✅ Fetch current mark price safely
         ticker = client.get_ticker(str(product_id))
-        mark_price = float(ticker["mark_price"])
+        mark_price = float(ticker.get("mark_price", 0))
 
+        # ✅ Validate SL against mark price to avoid STOP_MARKET error
         if side == "buy" and sl_price >= mark_price:
             sl_price = round(mark_price - 0.5, 2)
         elif side == "sell" and sl_price <= mark_price:
             sl_price = round(mark_price + 0.5, 2)
 
+        if sl_price <= 0:
+            print("❌ SL price invalid or too low, skipping trade.")
+            return
+
+        # 🎯 Place Take Profit (LIMIT)
         client.place_order(
             product_id=product_id,
             size=lot_size,
@@ -145,6 +144,7 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🎯 TP placed at {tp_price}")
 
+        # 🚩 Place Stop Loss (STOP_MARKET)
         client.place_stop_order(
             product_id=product_id,
             size=lot_size,
@@ -154,13 +154,16 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🚩 SL placed at {sl_price}")
 
+        # Log the trade
         with open("trades_log.txt", "a") as f:
             f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size}\n")
 
-        monitor_trailing_stop(client, product_id, entry_price, side, TP_USD)
+        # Monitor trailing stop
+        monitor_trailing_stop(client, product_id, entry_price, side, tp_usd)
 
     except Exception as e:
         print(f"❌ Failed to place order: {e}")
+
 
 # === TRAILING SL MONITOR ===
 def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
