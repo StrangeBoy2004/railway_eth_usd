@@ -64,8 +64,8 @@ def fetch_eth_candles(symbol="ETH/USDT", timeframe="1m", limit=100):
 
 # === APPLY STRATEGY ===
 def apply_strategy(df):
-    df["ema6"] = df["close"].ewm(span=6).mean()
-    df["ema12"] = df["close"].ewm(span=12).mean()
+    df["ema9"] = df["close"].ewm(span=9).mean()
+    df["ema15"] = df["close"].ewm(span=15).mean()
     return df
 
 # === GET SIGNAL ===
@@ -73,9 +73,9 @@ def get_trade_signal(df):
     prev = df.iloc[-2]
     last = df.iloc[-1]
     print("\n📊 Strategy Check (Latest Candle):")
-    if prev["ema6"] < prev["ema12"] and last["ema6"] > last["ema12"]:
+    if prev["ema9"] < prev["ema15"] and last["ema9"] > last["ema15"]:
         return "buy"
-    elif prev["ema6"] > prev["ema12"] and last["ema6"] < last["ema12"]:
+    elif prev["ema9"] > prev["ema15"] and last["ema9"] < last["ema15"]:
         return "sell"
     return None
 
@@ -166,6 +166,59 @@ def place_order(client, capital, side, product_id):
 
     except Exception as e:
         print(f"❌ Failed to place order: {e}")
+
+        
+# === TRAILING SL MONITOR ===
+def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
+    halfway = entry_price + tp_usd / 2 if side == "buy" else entry_price - tp_usd / 2
+    trail_distance = tp_usd / 2
+    moved_to_be = False
+
+    while True:
+        try:
+            pos = client.get_position(product_id=product_id)
+            if not pos or float(pos.get("size", 0)) == 0:
+                print("🚪 Position closed.")
+                break
+
+            price = float(pos.get("mark_price", 0))
+            size = float(pos.get("size"))
+
+            if not moved_to_be:
+                if (side == "buy" and price >= halfway) or (side == "sell" and price <= halfway):
+                    be_price = round(entry_price, 2)
+
+                    client.place_stop_order(
+                        product_id=product_id,
+                        size=size,
+                        side="sell" if side == "buy" else "buy",
+                        stop_price=be_price,
+                        order_type=OrderType.STOP_MARKET
+                    )
+                    print(f"🔄 SL moved to BE at {be_price}")
+                    moved_to_be = True
+            else:
+                new_sl = round(price - trail_distance, 2) if side == "buy" else round(price + trail_distance, 2)
+
+                if (side == "buy" and new_sl >= price) or (side == "sell" and new_sl <= price):
+                    print(f"⚠️ Skipping invalid trailing SL: {new_sl} (Current: {price})")
+                    time.sleep(10)
+                    continue
+
+                client.place_stop_order(
+                    product_id=product_id,
+                    size=size,
+                    side="sell" if side == "buy" else "buy",
+                    stop_price=new_sl,
+                    order_type=OrderType.STOP_MARKET
+                )
+                print(f"🔁 Trailing SL updated to {new_sl}")
+
+            time.sleep(15)
+
+        except Exception as e:
+            print(f"❌ Error in trailing SL monitor: {e}")
+            time.sleep(15)
 
 # === WAIT FOR NEXT CANDLE ===
 def wait_until_next_1min():
