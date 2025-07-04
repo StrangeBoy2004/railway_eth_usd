@@ -100,45 +100,41 @@ def place_order(client, capital, side, product_id):
         LEVERAGE = 1
         MIN_LOT_SIZE = 1
 
+        # Calculate SL/TP in USD terms
         risk_amount = capital * RISK_PERCENT
         sl_usd = capital * SL_PERCENT
         tp_usd = sl_usd * TP_MULTIPLIER
         raw_lot_size = risk_amount / (sl_usd * LEVERAGE)
         lot_size = max(round(raw_lot_size, 3), MIN_LOT_SIZE)
 
-        # === Place market order ===
+        # Market entry
         order = client.place_order(
             product_id=product_id,
             size=lot_size,
             side=side,
             order_type=OrderType.MARKET
         )
+        entry_price = float(order.get('limit_price') or order.get('average_fill_price'))
 
-        # ✅ Safely extract entry price
-        entry_price = float(order.get('average_fill_price', 0))
-        if entry_price <= 0:
-            print("❌ Invalid entry price. Order not filled?")
-            return
-
-        # === Calculate SL/TP ===
+        # SL and TP calculation
         sl_price = round(entry_price - sl_usd, 2) if side == "buy" else round(entry_price + sl_usd, 2)
         tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
 
-        # ✅ Ensure TP and SL are valid
-        if tp_price <= 0 or sl_price <= 0:
-            print(f"❌ Invalid TP ({tp_price}) or SL ({sl_price}) price. Aborting trade.")
-            return
-
-        # ✅ Get mark price and adjust SL if too close
+        # ✅ Get mark price and ensure SL is not too close
         ticker = client.get_ticker(str(product_id))
         mark_price = float(ticker.get("mark_price", 0))
 
-        if side == "buy" and sl_price >= mark_price:
-            sl_price = round(mark_price - 0.5, 2)
-        elif side == "sell" and sl_price <= mark_price:
-            sl_price = round(mark_price + 0.5, 2)
+        if side == "buy" and sl_price >= mark_price - 0.1:
+            sl_price = round(mark_price - 1.0, 2)
+        elif side == "sell" and sl_price <= mark_price + 0.1:
+            sl_price = round(mark_price + 1.0, 2)
 
-        # === Place Take Profit ===
+        # ✅ Final SL safety check
+        if sl_price <= 0:
+            print(f"❌ SL price {sl_price} is invalid. Aborting order.")
+            return
+
+        # --- Place TP ---
         client.place_order(
             product_id=product_id,
             size=lot_size,
@@ -148,7 +144,7 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🎯 TP placed at {tp_price}")
 
-        # === Place Stop Loss ===
+        # --- Place SL (Stop-Market) ---
         client.place_stop_order(
             product_id=product_id,
             size=lot_size,
@@ -158,11 +154,11 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🚩 SL placed at {sl_price}")
 
-        # === Log the trade ===
+        # --- Log trade ---
         with open("trades_log.txt", "a") as f:
             f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size}\n")
 
-        # === Monitor trailing stop ===
+        # --- Optional: Monitor position for trailing SL ---
         monitor_trailing_stop(client, product_id, entry_price, side, tp_usd)
 
     except Exception as e:
