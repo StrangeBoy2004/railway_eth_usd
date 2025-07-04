@@ -64,8 +64,8 @@ def fetch_eth_candles(symbol="ETH/USDT", timeframe="1m", limit=100):
 
 # === APPLY STRATEGY ===
 def apply_strategy(df):
-    df["ema9"] = df["close"].ewm(span=9).mean()
-    df["ema15"] = df["close"].ewm(span=15).mean()
+    df["ema9"] = df["close"].ewm(span=6).mean()
+    df["ema15"] = df["close"].ewm(span=12).mean()
     return df
 
 # === GET SIGNAL ===
@@ -73,9 +73,9 @@ def get_trade_signal(df):
     prev = df.iloc[-2]
     last = df.iloc[-1]
     print("\n📊 Strategy Check (Latest Candle):")
-    if prev["ema9"] < prev["ema15"] and last["ema9"] > last["ema15"]:
+    if prev["ema6"] < prev["ema12"] and last["ema6"] > last["ema12"]:
         return "buy"
-    elif prev["ema9"] > prev["ema15"] and last["ema9"] < last["ema15"]:
+    elif prev["ema6"] > prev["ema12"] and last["ema6"] < last["ema12"]:
         return "sell"
     return None
 
