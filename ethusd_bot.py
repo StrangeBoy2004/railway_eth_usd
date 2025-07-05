@@ -143,7 +143,7 @@ def place_order(client, capital, side, product_id):
         )
 
         # === GET ENTRY PRICE ===
-        entry_price = float(order.get('limit_price') or order.get('average_fill_price'))
+        entry_price = float(order.get('average_fill_price') or order.get('limit_price'))
         if entry_price <= 0:
             print("❌ Invalid entry price. Skipping.")
             return
