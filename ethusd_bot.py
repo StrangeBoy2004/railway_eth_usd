@@ -126,12 +126,12 @@ def safe_cancel_open_position_and_orders(client, product_id):
 def place_order(client, capital, side, product_id):
     try:
         # === CONFIGURATION ===
-        LOT_SIZE = 1              # Fixed number of contracts
-        SL_PERCENT = 0.01         # Stop loss % (1%)
-        TP_MULTIPLIER = 2         # Risk-reward ratio 1:2
-        LEVERAGE = 1              # ✅ Leverage multiplier (adjust if needed)
+        LOT_SIZE = 1
+        SL_PERCENT = 0.01
+        TP_MULTIPLIER = 2
+        LEVERAGE = 50  # Set your leverage here (1x to 50x typically supported)
 
-        # === SET LEVERAGE ON POSITION ===
+        # === APPLY LEVERAGE BEFORE ORDER ===
         client.set_leverage(product_id=product_id, leverage=LEVERAGE)
 
         # === PLACE MARKET ENTRY ===
@@ -143,21 +143,12 @@ def place_order(client, capital, side, product_id):
         )
 
         # === GET ENTRY PRICE ===
-        entry_price = order.get('average_fill_price') or order.get('limit_price')
+        entry_price = float(order.get('limit_price') or order.get('average_fill_price'))
+        if entry_price <= 0:
+            print("❌ Invalid entry price. Skipping.")
+            return
 
-        if not entry_price or float(entry_price) < 1:
-            ticker = client.get_ticker(str(product_id))
-            mark_price = float(ticker.get("mark_price", 0))
-            if mark_price > 0:
-                entry_price = mark_price
-                print(f"⚠️ Entry price fallback to mark price: {entry_price}")
-            else:
-                print("❌ Could not determine valid entry price. Skipping trade.")
-                return
-
-        entry_price = round(float(entry_price), 2)
-
-        # === Calculate SL and TP prices ===
+        # === SL/TP CALCULATION ===
         sl_distance = entry_price * SL_PERCENT
         tp_distance = sl_distance * TP_MULTIPLIER
 
@@ -165,18 +156,12 @@ def place_order(client, capital, side, product_id):
         tp_price = round(entry_price + tp_distance, 2) if side == "buy" else round(entry_price - tp_distance, 2)
 
         if sl_price <= 0 or tp_price <= 0:
-            print(f"❌ Invalid SL ({sl_price}) or TP ({tp_price}). Skipping trade.")
+            print(f"❌ Invalid SL ({sl_price}) or TP ({tp_price}). Skipping.")
             return
 
-        # === Margin Check (Simple approximation) ===
-        required_margin = (entry_price * LOT_SIZE) / LEVERAGE
-        if capital < required_margin:
-            print(f"❌ Not enough margin: Need ${required_margin:.2f}, Available: ${capital:.2f}")
-            return
+        print(f"📌 Entry: {entry_price}, SL: {sl_price}, TP: {tp_price}, Lot: {LOT_SIZE}")
 
-        print(f"📌 Entry: {entry_price}, SL: {sl_price}, TP: {tp_price}, Lot: {LOT_SIZE}, Leverage: {LEVERAGE}")
-
-        # === Place TP ===
+        # === PLACE TAKE PROFIT ===
         client.place_order(
             product_id=product_id,
             size=LOT_SIZE,
@@ -186,7 +171,7 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🎯 TP placed at {tp_price}")
 
-        # === Place SL (Market fallback) ===
+        # === PLACE STOP LOSS (Market Fallback) ===
         client.place_order(
             product_id=product_id,
             size=LOT_SIZE,
@@ -195,11 +180,11 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🚩 SL placed at {sl_price} (Market fallback)")
 
-        # === Log Trade ===
+        # === LOG TRADE ===
         with open("trades_log.txt", "a") as f:
             f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {LOT_SIZE} | Leverage: {LEVERAGE}\n")
 
-        # === Start Trailing SL Monitor ===
+        # === MONITOR TRAILING SL ===
         monitor_trailing_stop(client, product_id, entry_price, side, tp_distance)
 
     except Exception as e:
