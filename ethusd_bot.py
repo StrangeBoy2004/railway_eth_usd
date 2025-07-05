@@ -71,10 +71,12 @@ def get_trade_signal(df):
     print("\n📊 Strategy Check (Latest Candle):")
     print(f"🧮 EMA6: prev={round(prev['ema6'], 2)}, last={round(last['ema6'], 2)}")
     print(f"🧮 EMA12: prev={round(prev['ema12'], 2)}, last={round(last['ema12'], 2)}")
-    if prev["ema6"] < prev["ema12"] and last["ema6"] > last["ema12"]:
+   # Buy signal: EMA6 just crossed above EMA12 or is equal (touching)
+    if second_last["ema6"] <= second_last["ema12"] and last["ema6"] >= last["ema12"]:
         print("✅ Buy signal detected.")
         return "buy"
-    elif prev["ema6"] > prev["ema12"] and last["ema6"] < last["ema12"]:
+    # Sell signal: EMA6 just crossed below EMA12 or is equal
+    elif second_last["ema6"] >= second_last["ema12"] and last["ema6"] <= last["ema12"]:
         print("✅ Sell signal detected.")
         return "sell"
     return None
