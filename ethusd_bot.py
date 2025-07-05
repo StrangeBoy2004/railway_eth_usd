@@ -94,18 +94,21 @@ def has_open_position(client, product_id):
 # === PLACE ORDER + SL/TP ===
 def place_order(client, capital, side, product_id):
     try:
+        # === CONFIGURATION ===
         RISK_PERCENT = 0.10
         SL_PERCENT = 0.01
-        TP_MULTIPLIER = 3
+        TP_MULTIPLIER = 2     # <-- ✅ Set RRR to 1:2
         LEVERAGE = 1
         MIN_LOT_SIZE = 1
 
+        # === RISK & SIZE CALCULATION ===
         risk_amount = capital * RISK_PERCENT
         sl_usd = capital * SL_PERCENT
         tp_usd = sl_usd * TP_MULTIPLIER
         raw_lot_size = risk_amount / (sl_usd * LEVERAGE)
         lot_size = max(round(raw_lot_size, 3), MIN_LOT_SIZE)
 
+        # === MARKET ENTRY ===
         order = client.place_order(
             product_id=product_id,
             size=lot_size,
@@ -114,9 +117,11 @@ def place_order(client, capital, side, product_id):
         )
         entry_price = float(order.get('limit_price') or order.get('average_fill_price'))
 
+        # === SL/TP CALCULATION ===
         sl_price = round(entry_price - sl_usd, 2) if side == "buy" else round(entry_price + sl_usd, 2)
         tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
 
+        # === MARK PRICE VALIDATION ===
         ticker = client.get_ticker(str(product_id))
         mark_price = float(ticker.get("mark_price", 0))
 
@@ -125,10 +130,12 @@ def place_order(client, capital, side, product_id):
         elif side == "sell" and sl_price <= mark_price + 0.1:
             sl_price = round(mark_price + 1.0, 2)
 
-        if sl_price <= 0:
-            print(f"❌ SL price {sl_price} is invalid. Aborting order.")
+        # === FINAL SL SAFETY CHECK ===
+        if sl_price <= 0 or abs(mark_price - sl_price) < 0.5:
+            print(f"⚠️ SL too close or invalid: {sl_price} | Mark: {mark_price}. Aborting.")
             return
 
+        # === PLACE TAKE PROFIT ===
         client.place_order(
             product_id=product_id,
             size=lot_size,
@@ -136,8 +143,9 @@ def place_order(client, capital, side, product_id):
             limit_price=tp_price,
             order_type=OrderType.LIMIT
         )
-        print(f"🍇 TP placed at {tp_price}")
+        print(f"🎯 TP placed at {tp_price}")
 
+        # === PLACE STOP LOSS (STOP MARKET) ===
         client.place_stop_order(
             product_id=product_id,
             size=lot_size,
@@ -147,13 +155,16 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🚩 SL placed at {sl_price}")
 
+        # === LOG TRADE ===
         with open("trades_log.txt", "a") as f:
             f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size}\n")
 
+        # === TRAILING SL MONITOR ===
         monitor_trailing_stop(client, product_id, entry_price, side, tp_usd)
 
     except Exception as e:
         print(f"❌ Failed to place order: {e}")
+
 
 # === TRAILING STOP MONITOR ===
 def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
