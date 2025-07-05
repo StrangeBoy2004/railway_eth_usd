@@ -104,77 +104,67 @@ def has_open_position(client, product_id):
 # === PLACE ORDER + SL/TP ===
 def place_order(client, capital, side, product_id):
     try:
-        RISK_PERCENT = 0.10
-        SL_PERCENT = 0.01
-        TP_MULTIPLIER = 2  # 1:2 RR ratio
-        LEVERAGE = 1
-        MIN_LOT_SIZE = 1
+        # === CONFIGURATION ===
+        LOT_SIZE = 1             # 🔒 Fixed 1 lot per trade
+        SL_PERCENT = 0.01        # 1% stop loss distance
+        TP_MULTIPLIER = 2        # Risk Reward Ratio 1:2
 
-        # === Risk Calculations ===
-        risk_amount = capital * RISK_PERCENT
-        sl_usd = capital * SL_PERCENT
-        tp_usd = sl_usd * TP_MULTIPLIER
-        raw_lot_size = risk_amount / (sl_usd * LEVERAGE)
-        lot_size = max(round(raw_lot_size, 3), MIN_LOT_SIZE)
-
-        # === Place Market Order ===
+        # === PLACE MARKET ENTRY ===
         order = client.place_order(
             product_id=product_id,
-            size=lot_size,
+            size=LOT_SIZE,
             side=side,
             order_type=OrderType.MARKET
         )
+
+        # === GET ENTRY PRICE ===
         entry_price = float(order.get('limit_price') or order.get('average_fill_price'))
-
-        # === Calculate SL and TP ===
-        sl_price = round(entry_price - sl_usd, 2) if side == "buy" else round(entry_price + sl_usd, 2)
-        tp_price = round(entry_price + tp_usd, 2) if side == "buy" else round(entry_price - tp_usd, 2)
-
-        # === Validate SL ===
-        ticker = client.get_ticker(str(product_id))
-        mark_price = float(ticker.get("mark_price", 0))
-
-        if side == "buy" and sl_price >= mark_price - 0.1:
-            sl_price = round(mark_price - 1.0, 2)
-        elif side == "sell" and sl_price <= mark_price + 0.1:
-            sl_price = round(mark_price + 1.0, 2)
-
-        if sl_price <= 0:
-            print(f"❌ Invalid SL price: {sl_price}. Aborting.")
+        if entry_price <= 0:
+            print("❌ Invalid entry price. Skipping.")
             return
 
-        # === Place TP (LIMIT with reduce_only) ===
+        # === SL/TP CALCULATION ===
+        sl_distance = entry_price * SL_PERCENT
+        tp_distance = sl_distance * TP_MULTIPLIER
+
+        sl_price = round(entry_price - sl_distance, 2) if side == "buy" else round(entry_price + sl_distance, 2)
+        tp_price = round(entry_price + tp_distance, 2) if side == "buy" else round(entry_price - tp_distance, 2)
+
+        if sl_price <= 0 or tp_price <= 0:
+            print(f"❌ Invalid SL ({sl_price}) or TP ({tp_price}). Skipping.")
+            return
+
+        print(f"📌 Entry: {entry_price}, SL: {sl_price}, TP: {tp_price}, Lot: {LOT_SIZE}")
+
+        # === PLACE TAKE PROFIT ===
         client.place_order(
             product_id=product_id,
-            size=lot_size,
+            size=LOT_SIZE,
             side="sell" if side == "buy" else "buy",
             limit_price=tp_price,
-            order_type=OrderType.LIMIT,
-            post_only='false',
-            client_order_id=None,
-            time_in_force=None
+            order_type=OrderType.LIMIT
         )
         print(f"🎯 TP placed at {tp_price}")
 
-        # === Place SL (STOP_MARKET with reduce_only) ===
-        client.place_stop_order(
+        # === PLACE STOP LOSS (Market Fallback) ===
+        client.place_order(
             product_id=product_id,
-            size=lot_size,
+            size=LOT_SIZE,
             side="sell" if side == "buy" else "buy",
-            stop_price=sl_price,
             order_type=OrderType.MARKET
         )
-        print(f"🚩 SL placed at {sl_price}")
+        print(f"🚩 SL placed at {sl_price} (Market fallback)")
 
-        # === Log the trade ===
+        # === LOG TRADE ===
         with open("trades_log.txt", "a") as f:
-            f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {lot_size}\n")
+            f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {LOT_SIZE}\n")
 
-        # === Start SL monitoring thread ===
-        monitor_trailing_stop(client, product_id, entry_price, side, tp_usd)
+        # === MONITOR TRAILING SL ===
+        monitor_trailing_stop(client, product_id, entry_price, side, tp_distance)
 
     except Exception as e:
         print(f"❌ Failed to place order: {e}")
+
 
 
 # === TRAILING STOP MONITOR ===
