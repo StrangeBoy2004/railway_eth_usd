@@ -2,7 +2,7 @@
 # === Market Order Entry + Hybrid OCO SL/TP + Trailing SL after Halfway TP ===
 
 from delta_rest_client import DeltaRestClient, OrderType
-from datetime import datetime
+from datetime import datetime, timedelta
 import ccxt
 import pandas as pd
 import time
@@ -233,9 +233,10 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
 
 # === WAIT FOR NEXT CANDLE ===
 def wait_until_next_1min():
-    now = datetime.now()
-    wait_seconds = 60 - now.second
-    print(f"🕒 Waiting {wait_seconds}s until next 1m candle...")
+    now = datetime.utcnow()  # Use UTC to match exchange servers
+    next_minute = (now + timedelta(minutes=1)).replace(second=0, microsecond=0)
+    wait_seconds = (next_minute - now).total_seconds()
+    print(f"🕒 Waiting {int(wait_seconds)}s until next 1m candle...")
     time.sleep(wait_seconds)
 
 # === MAIN LOOP ===
