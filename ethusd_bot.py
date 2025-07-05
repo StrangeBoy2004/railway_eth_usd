@@ -68,16 +68,26 @@ def apply_strategy(df):
     df["ema12"] = df["close"].ewm(span=12).mean()
     return df
 
-# === GET SIGNAL ===
 def get_trade_signal(df):
-    prev = df.iloc[-2]
     last = df.iloc[-1]
+    second_last = df.iloc[-2]
+
     print("\n📊 Strategy Check (Latest Candle):")
-    if prev["ema6"] < prev["ema12"] and last["ema6"] > last["ema12"]:
+    
+    # Buy signal: EMA6 just crossed above EMA12 or is equal (touching)
+    if second_last["ema6"] <= second_last["ema12"] and last["ema6"] >= last["ema12"]:
+        print("✅ Buy signal detected.")
         return "buy"
-    elif prev["ema6"] > prev["ema12"] and last["ema6"] < last["ema12"]:
+    
+    # Sell signal: EMA6 just crossed below EMA12 or is equal
+    elif second_last["ema6"] >= second_last["ema12"] and last["ema6"] <= last["ema12"]:
+        print("✅ Sell signal detected.")
         return "sell"
+    print(f"🧮 EMA6: prev={second_last['ema6']:.2f}, last={last['ema6']:.2f}")
+    print(f"🧮 EMA12: prev={second_last['ema12']:.2f}, last={last['ema12']:.2f}")
+    print("❌ No trade this candle.")
     return None
+    
 
 # === CANCEL UNFILLED ORDERS ===
 def cancel_unfilled_orders(client, product_id):
@@ -151,7 +161,7 @@ def place_order(client, capital, side, product_id):
             size=lot_size,
             side="sell" if side == "buy" else "buy",
             stop_price=sl_price,
-            order_type=OrderType.STOP_MARKET
+            order_type=OrderType.MARKET
         )
         print(f"🚩 SL placed at {sl_price}")
 
