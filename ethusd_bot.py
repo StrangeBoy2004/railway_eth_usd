@@ -65,22 +65,26 @@ def apply_strategy(df):
     return df
 
 # === GET SIGNAL ===
+
 def get_trade_signal(df):
-    prev = df.iloc[-2]
     last = df.iloc[-1]
+    second_last = df.iloc[-2]
+
     print("\n📊 Strategy Check (Latest Candle):")
-    print(f"🧮 EMA6: prev={round(prev['ema6'], 2)}, last={round(last['ema6'], 2)}")
-    print(f"🧮 EMA12: prev={round(prev['ema12'], 2)}, last={round(last['ema12'], 2)}")
-   # Buy signal: EMA6 just crossed above EMA12 or is equal (touching)
+    
+    # Buy signal: EMA6 just crossed above EMA12 or is equal (touching)
     if second_last["ema6"] <= second_last["ema12"] and last["ema6"] >= last["ema12"]:
         print("✅ Buy signal detected.")
         return "buy"
+    
     # Sell signal: EMA6 just crossed below EMA12 or is equal
     elif second_last["ema6"] >= second_last["ema12"] and last["ema6"] <= last["ema12"]:
         print("✅ Sell signal detected.")
         return "sell"
+    print(f"🧮 EMA6: prev={second_last['ema6']:.2f}, last={last['ema6']:.2f}")
+    print(f"🧮 EMA12: prev={second_last['ema12']:.2f}, last={last['ema12']:.2f}")
+    print("❌ No trade this candle.")
     return None
-
 # === CANCEL UNFILLED ORDERS ===
 def cancel_unfilled_orders(client, product_id):
     open_orders = client.get_live_orders(query={"product_id": product_id})
