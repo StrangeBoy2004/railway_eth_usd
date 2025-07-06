@@ -144,7 +144,7 @@ def place_order(client, capital, side, product_id):
     try:
         # === CONFIGURATION ===
         LOT_SIZE = 1
-        SL_PERCENT = 0.01
+        SL_PERCENT = 1
         TP_MULTIPLIER = 2
         LEVERAGE = 1  # Set your leverage here (1x to 50x typically supported)
 
