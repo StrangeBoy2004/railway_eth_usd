@@ -83,7 +83,6 @@ def get_trade_signal(df):
         return "sell"
     print(f"🧮 EMA6: prev={second_last['ema6']:.2f}, last={last['ema6']:.2f}")
     print(f"🧮 EMA12: prev={second_last['ema12']:.2f}, last={last['ema12']:.2f}")
-    print("❌ No trade this candle.")
     return None
 # === CANCEL UNFILLED ORDERS ===
 def cancel_unfilled_orders(client, product_id):
@@ -147,7 +146,7 @@ def place_order(client, capital, side, product_id):
         LOT_SIZE = 1
         SL_PERCENT = 0.01
         TP_MULTIPLIER = 2
-        LEVERAGE = 50  # Set your leverage here (1x to 50x typically supported)
+        LEVERAGE = 1  # Set your leverage here (1x to 50x typically supported)
 
         # === APPLY LEVERAGE BEFORE ORDER ===
         client.set_leverage(product_id=product_id, leverage=LEVERAGE)
