@@ -101,24 +101,42 @@ def has_open_position(client, product_id):
 def safe_cancel_open_position_and_orders(client, product_id):
     try:
         print("⚠️ Attempting cleanup of open orders and positions...")
+
+        # ✅ Cancel all open orders safely
         open_orders = client.get_live_orders(query={"product_id": product_id})
         for order in open_orders:
-            client.cancel_order(product_id=product_id, order_id=order["id"])
-            print(f"❌ Cancelled unfilled order ID: {order['id']}")
+            order_id = order.get("id")
+            if order_id:
+                try:
+                    client.cancel_order(product_id=product_id, order_id=order_id)
+                    print(f"❌ Cancelled unfilled order ID: {order_id}")
+                except Exception as cancel_err:
+                    print(f"⚠️ Failed to cancel order ID {order_id}: {cancel_err}")
+            else:
+                print(f"⚠️ Skipping malformed order (missing 'id'): {order}")
 
+        # ✅ Close position safely if any
         pos = client.get_position(product_id=product_id)
         if pos and float(pos.get("size", 0)) > 0:
-            side = "sell" if pos["side"] == "buy" else "buy"
-            size = float(pos["size"])
-            client.place_order(
-                product_id=product_id,
-                size=size,
-                side=side,
-                order_type=OrderType.MARKET
-            )
-            print(f"✅ Position closed using market order (size={size}, side={side})")
+            side = pos.get("side")
+            size = float(pos.get("size", 0))
+            if side and size > 0:
+                exit_side = "sell" if side == "buy" else "buy"
+                try:
+                    client.place_order(
+                        product_id=product_id,
+                        size=size,
+                        side=exit_side,
+                        order_type=OrderType.MARKET
+                    )
+                    print(f"✅ Position closed using market order (size={size}, side={exit_side})")
+                except Exception as close_err:
+                    print(f"❌ Failed to close position: {close_err}")
+            else:
+                print(f"⚠️ Position exists but missing side or size: {pos}")
         else:
             print("✅ No open position to close.")
+
     except Exception as e:
         print(f"🚨 Failed during emergency cleanup: {e}")
 
