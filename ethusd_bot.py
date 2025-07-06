@@ -143,10 +143,10 @@ def safe_cancel_open_position_and_orders(client, product_id):
 def place_order(client, capital, side, product_id):
     try:
         # === CONFIGURATION ===
-        LOT_SIZE = 1
-        SL_PERCENT = 1
+        LOT_SIZE = 0.1
+        SL_PERCENT = 0.01
         TP_MULTIPLIER = 2
-        LEVERAGE = 1  # Set your leverage here (1x to 50x typically supported)
+        LEVERAGE = 5  # Set your leverage here (1x to 50x typically supported)
 
         # === APPLY LEVERAGE BEFORE ORDER ===
         client.set_leverage(product_id=product_id, leverage=LEVERAGE)
