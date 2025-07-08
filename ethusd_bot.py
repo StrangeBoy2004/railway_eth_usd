@@ -144,14 +144,14 @@ def place_order(client, capital, side, product_id):
     try:
         # === CONFIGURATION ===
         LOT_SIZE = 1
-        SL_PERCENT = 0.001
-        TP_MULTIPLIER = 0.002
-        LEVERAGE = 5  # Set your leverage here (1x to 50x typically supported)
+        SL_PERCENT = 0.01          # 1% stop loss
+        TP_MULTIPLIER = 2          # 1:2 risk-reward ratio
+        LEVERAGE = 5               # Set leverage
 
-        # === APPLY LEVERAGE BEFORE ORDER ===
+        # === SET LEVERAGE ===
         client.set_leverage(product_id=product_id, leverage=LEVERAGE)
 
-        # === PLACE MARKET ENTRY ===
+        # === PLACE MARKET ORDER ===
         order = client.place_order(
             product_id=product_id,
             size=LOT_SIZE,
@@ -165,7 +165,7 @@ def place_order(client, capital, side, product_id):
             print("❌ Invalid entry price. Skipping.")
             return
 
-        # === SL/TP CALCULATION ===
+        # === SL & TP CALCULATION ===
         sl_distance = entry_price * SL_PERCENT
         tp_distance = sl_distance * TP_MULTIPLIER
 
@@ -178,7 +178,7 @@ def place_order(client, capital, side, product_id):
 
         print(f"📌 Entry: {entry_price}, SL: {sl_price}, TP: {tp_price}, Lot: {LOT_SIZE}")
 
-        # === PLACE TAKE PROFIT ===
+        # === PLACE TP (LIMIT) ===
         client.place_order(
             product_id=product_id,
             size=LOT_SIZE,
@@ -188,20 +188,20 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🎯 TP placed at {tp_price}")
 
-        # === PLACE STOP LOSS (Market Fallback) ===
+        # === PLACE SL (MARKET fallback) ===
         client.place_order(
             product_id=product_id,
             size=LOT_SIZE,
             side="sell" if side == "buy" else "buy",
             order_type=OrderType.MARKET
         )
-        print(f"🚩 SL placed at {sl_price} (Market fallback)")
+        print(f"🚩 SL placed at {sl_price} (market fallback)")
 
         # === LOG TRADE ===
         with open("trades_log.txt", "a") as f:
             f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {LOT_SIZE} | Leverage: {LEVERAGE}\n")
 
-        # === MONITOR TRAILING SL ===
+        # === Start Trailing SL Monitor ===
         monitor_trailing_stop(client, product_id, entry_price, side, tp_distance)
 
     except Exception as e:
@@ -224,6 +224,7 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
             price = float(pos.get("mark_price", 0))
             size = float(pos.get("size"))
 
+            # === Move SL to Break-Even ===
             if not moved_to_be:
                 if (side == "buy" and price >= halfway) or (side == "sell" and price <= halfway):
                     be_price = round(entry_price, 2)
@@ -238,6 +239,7 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                     moved_to_be = True
                     last_sl_price = be_price
 
+            # === Trailing SL updates ===
             elif moved_to_be:
                 new_sl = round(price - trail_distance, 2) if side == "buy" else round(price + trail_distance, 2)
 
@@ -265,6 +267,7 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
         except Exception as e:
             print(f"❌ Error in trailing SL monitor: {e}")
             time.sleep(15)
+
 
 # === WAIT FOR NEXT CANDLE ===
 def wait_until_next_1min():
