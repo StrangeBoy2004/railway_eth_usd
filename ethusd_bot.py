@@ -47,7 +47,7 @@ def setup_trade_log():
     print("✅ Trade log file ready.")
 
 # === FETCH CANDLE DATA ===
-def fetch_eth_candles(symbol="ETH/USDT", timeframe="1m", limit=100):
+def fetch_eth_candles(symbol="ETH/USDT", timeframe="5m", limit=100):
     exchange = ccxt.binance()
     try:
         ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
@@ -270,7 +270,7 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
 
 
 # === WAIT FOR NEXT CANDLE ===
-def wait_until_next_1min():
+def wait_until_next_5min():
     now = datetime.utcnow()  # Use UTC to match exchange servers
     next_minute = (now + timedelta(minutes=5)).replace(second=0, microsecond=0)
     wait_seconds = (next_minute - now).total_seconds()
@@ -287,7 +287,7 @@ if __name__ == "__main__":
             print("\n🔁 Starting 5m Strategy Loop...")
             while True:
                 try:
-                    wait_until_next_1min()
+                    wait_until_next_5min()
                     cancel_unfilled_orders(client, PRODUCT_ID)
                     if has_open_position(client, PRODUCT_ID):
                         print("⏸️ Skipping: already in position.")
