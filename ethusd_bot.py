@@ -271,10 +271,10 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
 
 # === WAIT FOR NEXT CANDLE ===
 def wait_until_next_5min():
-    now = datetime.utcnow()  # Use UTC to match exchange servers
-    next_minute = (now + timedelta(minutes=5)).replace(second=0, microsecond=0)
-    wait_seconds = (next_minute - now).total_seconds()
-    print(f"🕒 Waiting {int(wait_seconds)}s until next 5m candle...")
+    now = datetime.utcnow()
+    next_5min = (now + timedelta(minutes=5 - now.minute % 5)).replace(second=5, microsecond=0)
+    wait_seconds = (next_5min - now).total_seconds()
+    print(f"🕒 Waiting {int(wait_seconds)}s until next 5m candle closes...")
     time.sleep(wait_seconds)
 
 # === MAIN LOOP ===
