@@ -184,7 +184,7 @@ def place_order(client, capital, side, product_id):
             size=LOT_SIZE,
             side="sell" if side == "buy" else "buy",
             limit_price=tp_price,
-            order_type=OrderType.LIMIT
+            order_type=OrderType.MARKET
         )
         print(f"🎯 TP placed at {tp_price}")
 
