@@ -217,19 +217,21 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
     while True:
         try:
             pos = client.get_position(product_id=product_id)
-            if not pos or float(pos.get("size", 0)) == 0:
+            size = float(pos.get("size", 0))
+            price = float(pos.get("mark_price", 0))
+
+            # === Exit if position closed ===
+            if size <= 0:
                 print("🚪 Position closed.")
                 break
 
-            price = float(pos.get("mark_price", 0))
-            size = float(pos.get("size"))
-
-            if price <= 0 or size <= 0:
-                print(f"⚠️ Invalid price ({price}) or size ({size}). Skipping SL update.")
-                time.sleep(15)
+            # === Defensive check: bad API data ===
+            if price <= 1 or size <= 0:
+                print(f"⚠️ Invalid price ({price}) or size ({size}). Retrying in 10s...")
+                time.sleep(10)
                 continue
 
-            # === Move SL to Break-Even ===
+            # === Break-Even logic ===
             if not moved_to_be:
                 if (side == "buy" and price >= halfway) or (side == "sell" and price <= halfway):
                     be_price = round(entry_price, 2)
@@ -244,11 +246,12 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                     moved_to_be = True
                     last_sl_price = be_price
 
-            # === Update trailing SL ===
+            # === Trailing SL ===
             elif moved_to_be:
                 new_sl = round(price - trail_distance, 2) if side == "buy" else round(price + trail_distance, 2)
 
-                if new_sl <= 0 or new_sl == last_sl_price:
+                if new_sl <= 1 or new_sl == last_sl_price:
+                    print(f"⚠️ Skipping duplicate/invalid SL update: {new_sl}")
                     time.sleep(10)
                     continue
 
@@ -271,8 +274,9 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
 
         except Exception as e:
             print(f"❌ Error in trailing SL monitor: {e}")
+            if "unavailable" in str(e) or "502" in str(e):
+                print("🔁 Retrying after temporary API error...")
             time.sleep(15)
-
 
 # === WAIT FOR NEXT CANDLE ===
 def wait_until_next_5min():
