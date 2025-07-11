@@ -86,10 +86,23 @@ def get_trade_signal(df):
     return None
 # === CANCEL UNFILLED ORDERS ===
 def cancel_unfilled_orders(client, product_id):
-    open_orders = client.get_live_orders(query={"product_id": product_id})
-    for order in open_orders:
-        client.cancel_order(product_id=product_id, order_id=order['id'])
-        print(f"❌ Cancelled unfilled order ID: {order['id']}")
+    try:
+        open_orders = client.get_live_orders(query={"product_id": product_id})
+        for order in open_orders:
+            order_id = order.get("id")
+            if not order_id:
+                continue  # Skip if order ID is missing
+
+            try:
+                client.cancel_order(product_id=product_id, order_id=order_id)
+                print(f"❌ Cancelled unfilled order ID: {order_id}")
+            except Exception as e:
+                if "open_order_not_found" in str(e):
+                    print(f"⚠️ Order {order_id} already filled or not found.")
+                else:
+                    print(f"⚠️ Failed to cancel order {order_id}: {e}")
+    except Exception as e:
+        print(f"❌ Failed to fetch live orders: {e}")
 
 # === CHECK OPEN POSITION ===
 def has_open_position(client, product_id):
