@@ -142,16 +142,15 @@ def safe_cancel_open_position_and_orders(client, product_id):
 # === PLACE ORDER FUNCTION ===
 def place_order(client, capital, side, product_id):
     try:
-        # === CONFIGURATION ===
         LOT_SIZE = 1
-        SL_PERCENT = 0.01          # 1% stop loss
-        TP_MULTIPLIER = 2          # 1:2 risk-reward ratio
-        LEVERAGE = 5               # Set leverage
+        SL_PERCENT = 0.01         # 1% SL
+        TP_MULTIPLIER = 2         # 1:2 RR
+        LEVERAGE = 5              # Leverage setting
 
-        # === SET LEVERAGE ===
+        # === Set leverage ===
         client.set_leverage(product_id=product_id, leverage=LEVERAGE)
 
-        # === PLACE MARKET ORDER ===
+        # === Market Entry ===
         order = client.place_order(
             product_id=product_id,
             size=LOT_SIZE,
@@ -159,13 +158,14 @@ def place_order(client, capital, side, product_id):
             order_type=OrderType.MARKET
         )
 
-        # === GET ENTRY PRICE ===
         entry_price = float(order.get('average_fill_price') or order.get('limit_price'))
-        if entry_price <= 0:
-            print("❌ Invalid entry price. Skipping.")
+
+        # === Safety Check ===
+        if not entry_price or entry_price < 100:
+            print(f"❌ Invalid entry price: {entry_price}. Skipping.")
+            print("🧾 Full order object:", order)
             return
 
-        # === SL & TP CALCULATION ===
         sl_distance = entry_price * SL_PERCENT
         tp_distance = sl_distance * TP_MULTIPLIER
 
@@ -178,17 +178,17 @@ def place_order(client, capital, side, product_id):
 
         print(f"📌 Entry: {entry_price}, SL: {sl_price}, TP: {tp_price}, Lot: {LOT_SIZE}")
 
-        # === PLACE TP (LIMIT) ===
+        # === TP ===
         client.place_order(
             product_id=product_id,
             size=LOT_SIZE,
             side="sell" if side == "buy" else "buy",
             limit_price=tp_price,
-            order_type=OrderType.MARKET
+            order_type=OrderType.LIMIT
         )
         print(f"🎯 TP placed at {tp_price}")
 
-        # === PLACE SL (MARKET fallback) ===
+        # === SL (fallback as market) ===
         client.place_order(
             product_id=product_id,
             size=LOT_SIZE,
@@ -197,9 +197,9 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🚩 SL placed at {sl_price} (market fallback)")
 
-        # === LOG TRADE ===
+        # === Log ===
         with open("trades_log.txt", "a") as f:
-            f.write(f"{datetime.now()} | MARKET {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {LOT_SIZE} | Leverage: {LEVERAGE}\n")
+            f.write(f"{datetime.now()} | {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {LOT_SIZE} | Leverage: {LEVERAGE}\n")
 
         # === Start Trailing SL Monitor ===
         monitor_trailing_stop(client, product_id, entry_price, side, tp_distance)
@@ -209,11 +209,11 @@ def place_order(client, capital, side, product_id):
 
 # === MONITOR TRAILING SL ===
 def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
+def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
     halfway = entry_price + tp_usd / 2 if side == "buy" else entry_price - tp_usd / 2
     trail_distance = tp_usd / 2
     moved_to_be = False
     last_sl_price = None
-    buffer = 0.2  # ✅ Minimum gap to prevent "immediate execution"
 
     while True:
         try:
@@ -225,50 +225,48 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
             price = float(pos.get("mark_price", 0))
             size = float(pos.get("size"))
 
-            # === Move to Break-Even ===
+            if price <= 0 or size <= 0:
+                print(f"⚠️ Invalid price ({price}) or size ({size}). Skipping SL update.")
+                time.sleep(15)
+                continue
+
+            # === Move SL to Break-Even ===
             if not moved_to_be:
                 if (side == "buy" and price >= halfway) or (side == "sell" and price <= halfway):
                     be_price = round(entry_price, 2)
-
-                    # Prevent placing SL that would immediately execute
-                    if (side == "buy" and be_price < price - buffer) or (side == "sell" and be_price > price + buffer):
-                        client.place_stop_order(
-                            product_id=product_id,
-                            size=size,
-                            side="sell" if side == "buy" else "buy",
-                            stop_price=be_price,
-                            order_type=OrderType.STOP_MARKET
-                        )
-                        print(f"🔄 SL moved to Break-Even at {be_price}")
-                        moved_to_be = True
-                        last_sl_price = be_price
-                    else:
-                        print(f"⚠️ Skipping BE SL: {be_price} too close to price {price}")
-                        time.sleep(10)
-                        continue
-
-            # === Trailing Stop Loss ===
-            elif moved_to_be:
-                new_sl = round(price - trail_distance, 2) if side == "buy" else round(price + trail_distance, 2)
-
-                # Skip if unchanged or invalid
-                if new_sl <= 0 or new_sl == last_sl_price:
-                    time.sleep(10)
-                    continue
-
-                # Check for safe trailing SL placement
-                if (side == "buy" and new_sl < price - buffer) or (side == "sell" and new_sl > price + buffer):
                     client.place_stop_order(
                         product_id=product_id,
                         size=size,
                         side="sell" if side == "buy" else "buy",
-                        stop_price=new_sl,
-                        order_type=OrderType.STOP_MARKET
+                        stop_price=be_price,
+                        order_type=OrderType.MARKET
                     )
-                    print(f"🔁 Trailing SL updated to {new_sl}")
-                    last_sl_price = new_sl
-                else:
-                    print(f"⚠️ Skipping trailing SL: {new_sl} too close to price {price}")
+                    print(f"🔄 SL moved to Break-Even at {be_price}")
+                    moved_to_be = True
+                    last_sl_price = be_price
+
+            # === Update trailing SL ===
+            elif moved_to_be:
+                new_sl = round(price - trail_distance, 2) if side == "buy" else round(price + trail_distance, 2)
+
+                if new_sl <= 0 or new_sl == last_sl_price:
+                    time.sleep(10)
+                    continue
+
+                if (side == "buy" and new_sl >= price) or (side == "sell" and new_sl <= price):
+                    print(f"⚠️ Skipping invalid trailing SL: {new_sl} vs price: {price}")
+                    time.sleep(10)
+                    continue
+
+                client.place_stop_order(
+                    product_id=product_id,
+                    size=size,
+                    side="sell" if side == "buy" else "buy",
+                    stop_price=new_sl,
+                    order_type=OrderType.MARKET
+                )
+                print(f"🔁 Trailing SL updated to {new_sl}")
+                last_sl_price = new_sl
 
             time.sleep(15)
 
