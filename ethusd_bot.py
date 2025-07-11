@@ -86,23 +86,10 @@ def get_trade_signal(df):
     return None
 # === CANCEL UNFILLED ORDERS ===
 def cancel_unfilled_orders(client, product_id):
-    try:
-        open_orders = client.get_live_orders(query={"product_id": product_id})
-        for order in open_orders:
-            order_id = order.get("id")
-            if not order_id:
-                continue  # Skip if order ID is missing
-
-            try:
-                client.cancel_order(product_id=product_id, order_id=order_id)
-                print(f"❌ Cancelled unfilled order ID: {order_id}")
-            except Exception as e:
-                if "open_order_not_found" in str(e):
-                    print(f"⚠️ Order {order_id} already filled or not found.")
-                else:
-                    print(f"⚠️ Failed to cancel order {order_id}: {e}")
-    except Exception as e:
-        print(f"❌ Failed to fetch live orders: {e}")
+    open_orders = client.get_live_orders(query={"product_id": product_id})
+    for order in open_orders:
+        client.cancel_order(product_id=product_id, order_id=order['id'])
+        print(f"❌ Cancelled unfilled order ID: {order['id']}")
 
 # === CHECK OPEN POSITION ===
 def has_open_position(client, product_id):
@@ -158,7 +145,7 @@ def place_order(client, capital, side, product_id):
         LOT_SIZE = 1
         SL_PERCENT = 0.01         # 1% SL
         TP_MULTIPLIER = 2         # 1:2 RR
-        LEVERAGE = 5
+        LEVERAGE = 5              # Leverage setting
 
         # === Set leverage ===
         client.set_leverage(product_id=product_id, leverage=LEVERAGE)
@@ -172,8 +159,11 @@ def place_order(client, capital, side, product_id):
         )
 
         entry_price = float(order.get('average_fill_price') or order.get('limit_price'))
+
+        # === Safety Check ===
         if not entry_price or entry_price < 100:
             print(f"❌ Invalid entry price: {entry_price}. Skipping.")
+            print("🧾 Full order object:", order)
             return
 
         sl_distance = entry_price * SL_PERCENT
@@ -188,7 +178,7 @@ def place_order(client, capital, side, product_id):
 
         print(f"📌 Entry: {entry_price}, SL: {sl_price}, TP: {tp_price}, Lot: {LOT_SIZE}")
 
-        # === TP (Limit) ===
+        # === TP ===
         client.place_order(
             product_id=product_id,
             size=LOT_SIZE,
@@ -198,21 +188,20 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🎯 TP placed at {tp_price}")
 
-        # === SL (Stop-Market) ===
-        client.place_stop_order(
+        # === SL (fallback as market) ===
+        client.place_order(
             product_id=product_id,
             size=LOT_SIZE,
             side="sell" if side == "buy" else "buy",
-            stop_price=sl_price,
-            order_type=OrderType.STOP_MARKET
+            order_type=OrderType.MARKET
         )
-        print(f"🚩 SL placed at {sl_price} (STOP_MARKET)")
+        print(f"🚩 SL placed at {sl_price} (market fallback)")
 
         # === Log ===
         with open("trades_log.txt", "a") as f:
             f.write(f"{datetime.now()} | {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {LOT_SIZE} | Leverage: {LEVERAGE}\n")
 
-        # === Monitor SL ===
+        # === Start Trailing SL Monitor ===
         monitor_trailing_stop(client, product_id, entry_price, side, tp_distance)
 
     except Exception as e:
@@ -233,14 +222,14 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                 break
 
             price = float(pos.get("mark_price", 0))
-            size = float(pos.get("size", 0))
+            size = float(pos.get("size"))
 
-            if price <= 1 or size <= 0:
+            if price <= 0 or size <= 0:
                 print(f"⚠️ Invalid price ({price}) or size ({size}). Skipping SL update.")
-                time.sleep(10)
+                time.sleep(15)
                 continue
 
-            # === Move to Break-Even ===
+            # === Move SL to Break-Even ===
             if not moved_to_be:
                 if (side == "buy" and price >= halfway) or (side == "sell" and price <= halfway):
                     be_price = round(entry_price, 2)
@@ -249,17 +238,17 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                         size=size,
                         side="sell" if side == "buy" else "buy",
                         stop_price=be_price,
-                        order_type=OrderType.STOP_MARKET
+                        order_type=OrderType.MARKET
                     )
                     print(f"🔄 SL moved to Break-Even at {be_price}")
                     moved_to_be = True
                     last_sl_price = be_price
 
-            # === Trailing SL ===
+            # === Update trailing SL ===
             elif moved_to_be:
                 new_sl = round(price - trail_distance, 2) if side == "buy" else round(price + trail_distance, 2)
 
-                if new_sl <= 1 or new_sl == last_sl_price:
+                if new_sl <= 0 or new_sl == last_sl_price:
                     time.sleep(10)
                     continue
 
@@ -273,7 +262,7 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                     size=size,
                     side="sell" if side == "buy" else "buy",
                     stop_price=new_sl,
-                    order_type=OrderType.STOP_MARKET
+                    order_type=OrderType.MARKET
                 )
                 print(f"🔁 Trailing SL updated to {new_sl}")
                 last_sl_price = new_sl
@@ -284,11 +273,6 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
             print(f"❌ Error in trailing SL monitor: {e}")
             time.sleep(15)
 
-        except Exception as e:
-            print(f"❌ Error in trailing SL monitor: {e}")
-            if "unavailable" in str(e) or "502" in str(e):
-                print("🔁 Retrying after temporary API error...")
-            time.sleep(15)
 
 # === WAIT FOR NEXT CANDLE ===
 def wait_until_next_5min():
