@@ -209,7 +209,6 @@ def place_order(client, capital, side, product_id):
 
 # === MONITOR TRAILING SL ===
 def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
-def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
     halfway = entry_price + tp_usd / 2 if side == "buy" else entry_price - tp_usd / 2
     trail_distance = tp_usd / 2
     moved_to_be = False
