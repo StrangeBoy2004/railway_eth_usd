@@ -26,6 +26,8 @@ def authenticate():
         return None
 
 # === FETCH USD BALANCE ===
+import requests
+
 def get_usd_balance(client):
     try:
         wallet = client.get_balances(asset_id=USD_ASSET_ID)
@@ -37,8 +39,17 @@ def get_usd_balance(client):
             print("❌ USD wallet not found.")
             return None
     except Exception as e:
+        # Attempt to fetch public IP to help user debug IP whitelist issues
+        try:
+            ip = requests.get("https://api.ipify.org").text
+            print(f"🌐 Your current IP: {ip}")
+            print("🔐 Make sure this IP is whitelisted in your Delta Exchange API settings.")
+        except:
+            print("⚠️ Unable to fetch public IP for whitelist suggestion.")
+        
         print(f"❌ Failed to fetch balance: {e}")
         return None
+
 
 # === SETUP TRADE LOG ===
 def setup_trade_log():
