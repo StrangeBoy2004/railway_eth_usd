@@ -230,19 +230,23 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
     while True:
         try:
             pos = client.get_position(product_id=product_id)
-            if not pos or float(pos.get("size", 0)) == 0:
-                print("🚪 Position closed.")
-                break
+
+            # 🛡️ Fallback if data missing or malformed
+            if not pos or "mark_price" not in pos or "size" not in pos:
+                print("⚠️ Position data missing or malformed. Retrying...")
+                time.sleep(10)
+                continue
 
             price = float(pos.get("mark_price", 0))
             size = float(pos.get("size", 0))
 
-            if price <= 1 or size <= 0:
+            # 🛡️ Guard against invalid data (very important)
+            if price <= 1 or size <= 0 or size == -1.0:
                 print(f"⚠️ Invalid price ({price}) or size ({size}). Skipping SL update.")
                 time.sleep(10)
                 continue
 
-            # === Move to Break-Even ===
+            # 🧮 Break-Even logic
             if not moved_to_be:
                 if (side == "buy" and price >= halfway) or (side == "sell" and price <= halfway):
                     be_price = round(entry_price, 2)
@@ -257,16 +261,17 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                     moved_to_be = True
                     last_sl_price = be_price
 
-            # === Trailing SL ===
+            # 🔁 Trailing SL logic
             elif moved_to_be:
                 new_sl = round(price - trail_distance, 2) if side == "buy" else round(price + trail_distance, 2)
 
                 if new_sl <= 1 or new_sl == last_sl_price:
+                    print(f"⚠️ Skipping duplicate or invalid SL update: {new_sl}")
                     time.sleep(10)
                     continue
 
                 if (side == "buy" and new_sl >= price) or (side == "sell" and new_sl <= price):
-                    print(f"⚠️ Skipping invalid trailing SL: {new_sl} vs price: {price}")
+                    print(f"⚠️ Skipping logically invalid SL: {new_sl} vs price: {price}")
                     time.sleep(10)
                     continue
 
@@ -284,6 +289,8 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
 
         except Exception as e:
             print(f"❌ Error in trailing SL monitor: {e}")
+            if "unavailable" in str(e) or "502" in str(e):
+                print("🔁 Retrying after temporary API error...")
             time.sleep(15)
 
 
