@@ -47,7 +47,7 @@ def setup_trade_log():
     print("✅ Trade log file ready.")
 
 # === FETCH CANDLE DATA ===
-def fetch_eth_candles(symbol="ETH/USDT", timeframe="5m", limit=100):
+def fetch_eth_candles(symbol="ETH/USDT", timeframe="1m", limit=100):
     exchange = ccxt.binance()
     try:
         ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
@@ -213,7 +213,6 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
     trail_distance = tp_usd / 2
     moved_to_be = False
     last_sl_price = None
-    buffer = 0.2  # ✅ Minimum gap to prevent "immediate execution"
 
     while True:
         try:
@@ -223,52 +222,50 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                 break
 
             price = float(pos.get("mark_price", 0))
-            size = float(pos.get("size"))
+            size = float(pos.get("size", 0))
+
+            if price <= 1 or size <= 0:
+                print(f"⚠️ Invalid price ({price}) or size ({size}). Skipping SL update.")
+                time.sleep(10)
+                continue
 
             # === Move to Break-Even ===
             if not moved_to_be:
                 if (side == "buy" and price >= halfway) or (side == "sell" and price <= halfway):
                     be_price = round(entry_price, 2)
-
-                    # Prevent placing SL that would immediately execute
-                    if (side == "buy" and be_price < price - buffer) or (side == "sell" and be_price > price + buffer):
-                        client.place_stop_order(
-                            product_id=product_id,
-                            size=size,
-                            side="sell" if side == "buy" else "buy",
-                            stop_price=be_price,
-                            order_type=OrderType.STOP_MARKET
-                        )
-                        print(f"🔄 SL moved to Break-Even at {be_price}")
-                        moved_to_be = True
-                        last_sl_price = be_price
-                    else:
-                        print(f"⚠️ Skipping BE SL: {be_price} too close to price {price}")
-                        time.sleep(10)
-                        continue
-
-            # === Trailing Stop Loss ===
-            elif moved_to_be:
-                new_sl = round(price - trail_distance, 2) if side == "buy" else round(price + trail_distance, 2)
-
-                # Skip if unchanged or invalid
-                if new_sl <= 0 or new_sl == last_sl_price:
-                    time.sleep(10)
-                    continue
-
-                # Check for safe trailing SL placement
-                if (side == "buy" and new_sl < price - buffer) or (side == "sell" and new_sl > price + buffer):
                     client.place_stop_order(
                         product_id=product_id,
                         size=size,
                         side="sell" if side == "buy" else "buy",
-                        stop_price=new_sl,
+                        stop_price=be_price,
                         order_type=OrderType.STOP_MARKET
                     )
-                    print(f"🔁 Trailing SL updated to {new_sl}")
-                    last_sl_price = new_sl
-                else:
-                    print(f"⚠️ Skipping trailing SL: {new_sl} too close to price {price}")
+                    print(f"🔄 SL moved to Break-Even at {be_price}")
+                    moved_to_be = True
+                    last_sl_price = be_price
+
+            # === Trailing SL ===
+            elif moved_to_be:
+                new_sl = round(price - trail_distance, 2) if side == "buy" else round(price + trail_distance, 2)
+
+                if new_sl <= 1 or new_sl == last_sl_price:
+                    time.sleep(10)
+                    continue
+
+                if (side == "buy" and new_sl >= price) or (side == "sell" and new_sl <= price):
+                    print(f"⚠️ Skipping invalid trailing SL: {new_sl} vs price: {price}")
+                    time.sleep(10)
+                    continue
+
+                client.place_stop_order(
+                    product_id=product_id,
+                    size=size,
+                    side="sell" if side == "buy" else "buy",
+                    stop_price=new_sl,
+                    order_type=OrderType.STOP_MARKET
+                )
+                print(f"🔁 Trailing SL updated to {new_sl}")
+                last_sl_price = new_sl
 
             time.sleep(15)
 
@@ -277,12 +274,13 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
             time.sleep(15)
 
 
+
 # === WAIT FOR NEXT CANDLE ===
-def wait_until_next_5min():
+def wait_until_next_1min():
     now = datetime.utcnow()
-    next_5min = (now + timedelta(minutes=5 - now.minute % 5)).replace(second=5, microsecond=0)
-    wait_seconds = (next_5min - now).total_seconds()
-    print(f"🕒 Waiting {int(wait_seconds)}s until next 5m candle closes...")
+    next_1min = (now + timedelta(minutes=1 - now.minute % 1)).replace(second=1, microsecond=0)
+    wait_seconds = (next_1min - now).total_seconds()
+    print(f"🕒 Waiting {int(wait_seconds)}s until next 1m candle closes...")
     time.sleep(wait_seconds)
 
 # === MAIN LOOP ===
@@ -295,7 +293,7 @@ if __name__ == "__main__":
             print("\n🔁 Starting 5m Strategy Loop...")
             while True:
                 try:
-                    wait_until_next_5min()
+                    wait_until_next_1min()
                     cancel_unfilled_orders(client, PRODUCT_ID)
                     if has_open_position(client, PRODUCT_ID):
                         print("⏸️ Skipping: already in position.")
