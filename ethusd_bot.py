@@ -205,7 +205,7 @@ def place_order(client, capital, side, product_id):
             size=LOT_SIZE,
             side="sell" if side == "buy" else "buy",
             stop_price=sl_price,
-            order_type=OrderType.STOP_MARKET
+            order_type=OrderType.MARKET
         )
         print(f"🚩 SL placed at {sl_price} (STOP_MARKET)")
 
@@ -251,7 +251,7 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                         size=size,
                         side="sell" if side == "buy" else "buy",
                         stop_price=be_price,
-                        order_type=OrderType.STOP_MARKET
+                        order_type=OrderType.MARKET
                     )
                     print(f"🔄 SL moved to Break-Even at {be_price}")
                     moved_to_be = True
@@ -275,7 +275,7 @@ def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
                     size=size,
                     side="sell" if side == "buy" else "buy",
                     stop_price=new_sl,
-                    order_type=OrderType.STOP_MARKET
+                    order_type=OrderType.MARKET
                 )
                 print(f"🔁 Trailing SL updated to {new_sl}")
                 last_sl_price = new_sl
