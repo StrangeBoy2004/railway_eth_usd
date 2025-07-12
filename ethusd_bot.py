@@ -86,10 +86,24 @@ def get_trade_signal(df):
     return None
 # === CANCEL UNFILLED ORDERS ===
 def cancel_unfilled_orders(client, product_id):
-    open_orders = client.get_live_orders(query={"product_id": product_id})
-    for order in open_orders:
-        client.cancel_order(product_id=product_id, order_id=order['id'])
-        print(f"❌ Cancelled unfilled order ID: {order['id']}")
+    try:
+        open_orders = client.get_live_orders(query={"product_id": product_id})
+        for order in open_orders:
+            order_id = order.get("id")
+            if not order_id:
+                continue  # Skip if order ID is missing
+
+            try:
+                client.cancel_order(product_id=product_id, order_id=order_id)
+                print(f"❌ Cancelled unfilled order ID: {order_id}")
+            except Exception as e:
+                if "open_order_not_found" in str(e):
+                    print(f"⚠️ Order {order_id} already filled or not found.")
+                else:
+                    print(f"⚠️ Failed to cancel order {order_id}: {e}")
+    except Exception as e:
+        print(f"❌ Failed to fetch live orders: {e}")
+
 
 # === CHECK OPEN POSITION ===
 def has_open_position(client, product_id):
@@ -145,7 +159,7 @@ def place_order(client, capital, side, product_id):
         LOT_SIZE = 1
         SL_PERCENT = 0.01         # 1% SL
         TP_MULTIPLIER = 2         # 1:2 RR
-        LEVERAGE = 5              # Leverage setting
+        LEVERAGE = 5
 
         # === Set leverage ===
         client.set_leverage(product_id=product_id, leverage=LEVERAGE)
@@ -159,11 +173,8 @@ def place_order(client, capital, side, product_id):
         )
 
         entry_price = float(order.get('average_fill_price') or order.get('limit_price'))
-
-        # === Safety Check ===
         if not entry_price or entry_price < 100:
             print(f"❌ Invalid entry price: {entry_price}. Skipping.")
-            print("🧾 Full order object:", order)
             return
 
         sl_distance = entry_price * SL_PERCENT
@@ -178,7 +189,7 @@ def place_order(client, capital, side, product_id):
 
         print(f"📌 Entry: {entry_price}, SL: {sl_price}, TP: {tp_price}, Lot: {LOT_SIZE}")
 
-        # === TP ===
+        # === TP (Limit) ===
         client.place_order(
             product_id=product_id,
             size=LOT_SIZE,
@@ -188,24 +199,26 @@ def place_order(client, capital, side, product_id):
         )
         print(f"🎯 TP placed at {tp_price}")
 
-        # === SL (fallback as market) ===
-        client.place_order(
+        # === SL (Stop-Market) ===
+        client.place_stop_order(
             product_id=product_id,
             size=LOT_SIZE,
             side="sell" if side == "buy" else "buy",
-            order_type=OrderType.MARKET
+            stop_price=sl_price,
+            order_type=OrderType.STOP_MARKET
         )
-        print(f"🚩 SL placed at {sl_price} (market fallback)")
+        print(f"🚩 SL placed at {sl_price} (STOP_MARKET)")
 
         # === Log ===
         with open("trades_log.txt", "a") as f:
             f.write(f"{datetime.now()} | {side.upper()} | Entry: {entry_price} | SL: {sl_price} | TP: {tp_price} | Lot: {LOT_SIZE} | Leverage: {LEVERAGE}\n")
 
-        # === Start Trailing SL Monitor ===
+        # === Monitor SL ===
         monitor_trailing_stop(client, product_id, entry_price, side, tp_distance)
 
     except Exception as e:
         print(f"❌ Failed to place order: {e}")
+
 
 # === MONITOR TRAILING SL ===
 def monitor_trailing_stop(client, product_id, entry_price, side, tp_usd):
